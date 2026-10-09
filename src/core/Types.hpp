@@ -1,0 +1,1 @@
+//Movement enum, SignalPhase enum

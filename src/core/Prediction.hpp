@@ -1,0 +1,1 @@
+//prediction struct (arrivals[12], horizon)
