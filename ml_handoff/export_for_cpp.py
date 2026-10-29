@@ -13,7 +13,8 @@ import os, sys
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
+
 
 DATA, MODEL, OUT = "data/dataset_60_12.csv", "models/traffic_mlp.pth", "ml_handoff"
 LAYERS = (0, 2, 4, 6)                       # indices of the Linear layers inside nn.Sequential
@@ -34,12 +35,14 @@ def fmt(a):
     return " ".join("%.9g" % v for v in np.ravel(a))
 
 
-def write_weights(path, w, mean, scale):
+def write_weights(path, w, mean, scale, target_min, target_scale):
     sizes = [w["net.0.weight"].shape[1]] + [w[f"net.{i}.weight"].shape[0] for i in LAYERS]
     with open(path, "w") as f:
         f.write(f"{len(sizes)} {' '.join(map(str, sizes))}\n")
         f.write(fmt(mean) + "\n")
         f.write(fmt(scale) + "\n")
+        f.write(fmt(target_min) + "\n")
+        f.write(fmt(target_scale) + "\n")
         for i in LAYERS:
             for row in w[f"net.{i}.weight"]:          # one output neuron per line
                 f.write(fmt(row) + "\n")
@@ -71,15 +74,19 @@ Per the ML README: `arr_5/15/30/60` are vehicle arrivals in the past 5/15/30/60 
 @@OUTPUTS@@
 
 ## Scaling and post-processing
-1. Scale inputs: `x_scaled[i] = (x[i] - mean[i]) / scale[i]` (`mean` and `scale` are lines 2-3 of `model_weights.txt`).
-2. Run the network (3 hidden layers with ReLU, linear output).
-3. **Outputs are NOT scaled**: they are already vehicle counts for the next 30 s.
-4. Clamp negatives to 0 (the network can return slightly negative values). `predict()` in the header does this.
+1. Standardize inputs: `x_scaled[i] = (x[i] - mean[i]) / scale[i]`.
+2. Run the network (3 hidden ReLU layers and a linear output).
+3. Convert normalized outputs back to vehicle counts:
+   `y_counts[i] = (y_scaled[i] - target_min[i]) / target_scale[i]`.
+4. Clamp negative vehicle counts to 0 in `predict()`.
 
 ## `model_weights.txt` format (whitespace-separated numbers)
-- Line 1: number of layer sizes, then the sizes: `5 60 128 64 32 12`
-- Line 2: scaler means (60 numbers). Line 3: scaler scales (60 numbers).
-- Then for each of the 4 layers: the weight matrix (one line per output neuron, `in` numbers each), then one line of biases.
+- Line 1: `5 60 128 64 32 12`
+- Line 2: input scaler means (60 numbers).
+- Line 3: input scaler scales (60 numbers).
+- Line 4: target MinMaxScaler `min_` (12 numbers).
+- Line 5: target MinMaxScaler `scale_` (12 numbers).
+- Remaining lines: network weights and biases for each layer.
 
 ## Verify (Week 4: "C++ receives the same predictions as Python")
 ```
@@ -119,7 +126,9 @@ def run(weights, df):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42)
     sc = StandardScaler().fit(Xtr)
 
-    pred = forward(weights, sc.transform(Xte))
+    target_sc = MinMaxScaler().fit(ytr)
+    pred_scaled = forward(weights, sc.transform(Xte))
+    pred = target_sc.inverse_transform(pred_scaled)
     mae = np.abs(pred - yte).mean()
     rmse = np.sqrt(((pred - yte) ** 2).mean())
     base = np.abs(ytr.mean(0) - yte).mean()
@@ -131,11 +140,20 @@ def run(weights, df):
     print(">>> They should match to ~3-4 decimals. If not, do NOT hand this off yet.")
 
     os.makedirs(OUT, exist_ok=True)
-    sizes = write_weights(os.path.join(OUT, "model_weights.txt"), weights, sc.mean_, sc.scale_)
+    sizes = write_weights(
+        os.path.join(OUT, "model_weights.txt"),
+        weights,
+        sc.mean_,
+        sc.scale_,
+        target_sc.min_,
+        target_sc.scale_,
+    )
 
     idx = np.linspace(0, len(Xte) - 1, 5).astype(int)
     raw = Xte[idx]
-    tv = np.hstack([raw, forward(weights, sc.transform(raw))])
+    pred_scaled = forward(weights, sc.transform(raw))
+    pred_counts = target_sc.inverse_transform(pred_scaled)
+    tv = np.hstack([raw, pred_counts])
     pd.DataFrame(tv, columns=x_cols + ["pred_" + c for c in y_cols]).to_csv(
         os.path.join(OUT, "test_vectors.csv"), index=False, float_format="%.9g")
 
