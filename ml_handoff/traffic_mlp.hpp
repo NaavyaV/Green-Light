@@ -14,6 +14,7 @@
 struct TrafficMLP {
     std::vector<int> sizes;                    // e.g. 60 128 64 32 12
     std::vector<double> mean, scale;           // input scaling
+    std::vector<double> target_min, target_scale;
     std::vector<std::vector<double>> W, b;     // W[l] is row-major [out][in]
 
     void load(const std::string& path) {
@@ -27,6 +28,11 @@ struct TrafficMLP {
         scale.resize(sizes[0]);
         for (auto& v : mean) f >> v;
         for (auto& v : scale) f >> v;
+        target_min.resize(sizes.back());
+        target_scale.resize(sizes.back());
+
+        for (auto& v : target_min) f >> v;
+        for (auto& v : target_scale) f >> v;
         W.clear();
         b.clear();
         for (int l = 0; l + 1 < n; ++l) {
@@ -54,6 +60,9 @@ struct TrafficMLP {
                 y[o] = (l + 1 < layers) ? std::max(0.0, s) : s;   // ReLU on hidden layers only
             }
             h = std::move(y);
+        }
+        for (size_t i = 0; i < h.size(); ++i) {
+            h[i] = (h[i] - target_min[i]) / target_scale[i];
         }
         return h;
     }

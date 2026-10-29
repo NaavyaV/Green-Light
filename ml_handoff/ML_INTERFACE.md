@@ -92,15 +92,19 @@ Per the ML README: `arr_5/15/30/60` are vehicle arrivals in the past 5/15/30/60 
 11. target_W_RIGHT
 
 ## Scaling and post-processing
-1. Scale inputs: `x_scaled[i] = (x[i] - mean[i]) / scale[i]` (`mean` and `scale` are lines 2-3 of `model_weights.txt`).
-2. Run the network (3 hidden layers with ReLU, linear output).
-3. **Outputs are NOT scaled**: they are already vehicle counts for the next 30 s.
-4. Clamp negatives to 0 (the network can return slightly negative values). `predict()` in the header does this.
+1. Standardize inputs: `x_scaled[i] = (x[i] - mean[i]) / scale[i]`.
+2. Run the network (3 hidden ReLU layers and a linear output).
+3. Convert normalized outputs back to vehicle counts:
+   `y_counts[i] = (y_scaled[i] - target_min[i]) / target_scale[i]`.
+4. Clamp negative vehicle counts to 0 in `predict()`.
 
 ## `model_weights.txt` format (whitespace-separated numbers)
-- Line 1: number of layer sizes, then the sizes: `5 60 128 64 32 12`
-- Line 2: scaler means (60 numbers). Line 3: scaler scales (60 numbers).
-- Then for each of the 4 layers: the weight matrix (one line per output neuron, `in` numbers each), then one line of biases.
+- Line 1: `5 60 128 64 32 12`
+- Line 2: input scaler means (60 numbers).
+- Line 3: input scaler scales (60 numbers).
+- Line 4: target MinMaxScaler `min_` (12 numbers).
+- Line 5: target MinMaxScaler `scale_` (12 numbers).
+- Remaining lines: network weights and biases for each layer.
 
 ## Verify (Week 4: "C++ receives the same predictions as Python")
 ```
