@@ -1,0 +1,94 @@
+# Fixed-time C++ engine (Stages 1–2)
+
+From the repository root:
+
+```sh
+cmake -S . -B /tmp/green-light-build -DCMAKE_BUILD_TYPE=Debug
+cmake --build /tmp/green-light-build
+ctest --test-dir /tmp/green-light-build --output-on-failure
+/tmp/green-light-build/green_light 60 42
+```
+
+Arguments are duration in simulated seconds and random seed. Configuration is in
+`SimulationConfig`: twelve independent Bernoulli probabilities (0–1 arrivals per
+movement per second), service capacity per green second, and a fixed signal plan.
+The default seed is 42. No physical speed or ML input is inferred from these queues.
+
+The queue list in each status line follows ML_INTERFACE.md exactly:
+N_LEFT, N_THROUGH, N_RIGHT, S_LEFT, S_THROUGH, S_RIGHT,
+E_LEFT, E_THROUGH, E_RIGHT, W_LEFT, W_THROUGH, W_RIGHT.
+Directions indicate travel direction, as in ML preprocessing.
+
+Four protected phase groups cycle: NS left; NS through/right; EW left; EW
+through/right. Default greens are 10/20/10/20 seconds, bounded by 5–40 seconds.
+Every green ends with 3 seconds of yellow and 2 seconds of all-red. No departures
+occur during clearance. Right-on-red, pedestrians, shared-lane constraints, travel
+speeds, vehicle positions, reactive control and predictive control are not modeled.
+Different phase groups are conservatively considered conflicting; no greens from
+different groups are shown simultaneously.
+
+Each step represents [t,t+1): arrivals join at t, FIFO service occurs at t under
+the interval's signal, and remaining queued vehicles accrue one second of wait.
+An arrival served immediately has zero wait. The status timestamp is t+1 and its
+signal identifies the interval just completed (not the following interval).
+Queues are unbounded; vehicles never disappear or spill back into other movements.
+Throughput is cumulative departures. `avg_wait` is the mean queue wait among
+**departed** vehicles; it excludes vehicles still queued. Per-movement state also
+retains cumulative queued vehicle-seconds (including ongoing waits), departed wait,
+arrivals/departures for the last second, and their cumulative totals. No statistics
+claim real-world validation. This is an abstract queue simulation, separate from React.
+
+`Prediction` is only a future integration data structure. `TrafficState::prediction`
+is empty throughout these stages. The fixed controller never reads forecasts.
+The ML handoff and standalone demo are unchanged.
+
+## Reactive mode
+
+```sh
+/tmp/green-light-build/green_light 300 42 --controller fixed
+/tmp/green-light-build/green_light 300 42 --controller reactive
+```
+
+Fixed remains the default; the original duration/seed syntax is unchanged.
+Reactive decisions use the queues at the end of each completed simulated second.
+After minimum green, it extends by one second while the current phase's total
+queue is at least as large as every alternative. Otherwise it selects the largest
+alternative queue. At maximum green it must switch to another phase. Ties among
+alternatives are resolved cyclically from the current phase. Empty intersections
+hold until maximum green, then cycle. The selected phase stays locked through the
+full yellow and all-red intervals. Fixed green durations apply only in fixed mode;
+minimum/maximum and clearance durations apply to both modes.
+
+The controller uses no randomness, so every movement receives exactly the same
+per-second arrival stream for equal seed and demand settings in either mode.
+This simple greedy policy has no starvation bound or optimization guarantee. It
+can switch too frequently and lose capacity during clearance; fixed-time remains
+an essential baseline. It does not read ML predictions or speed observations.
+
+### 300-second comparison (seed 42, default demand and timing)
+
+| Metric | Fixed | Reactive |
+|---|---:|---:|
+| Arrivals (identical each second and movement) | 706 | 706 |
+| Cumulative departures / throughput | 519 | 417 |
+| Final queued vehicles | 187 | 289 |
+| Mean departed-vehicle wait (seconds) | 48.691715 | 48.446043 |
+| Accrued queued vehicle-seconds | 34400 | 46160 |
+| Accrued wait per arrival (seconds, including ongoing waits) | 48.725212 | 65.382436 |
+
+Final queues in ML order:
+
+- Fixed: `[17,32,2,6,40,1,3,25,4,19,36,2]`
+- Reactive: `[43,30,1,32,41,0,21,32,3,45,40,1]`
+
+Reactive performs worse in this run: fewer departures, a larger remaining queue,
+and more accrued waiting. Its slightly lower departed-only mean excludes the
+larger number of unserved vehicles and should not be read as an overall benefit.
+These are finite-horizon results for one seed in the abstract queue model, not a
+claim about general performance. A reference build of commit `66ecd33` produces
+byte-identical fixed-mode output for the full 300-second run.
+
+Tests additionally verify reactive minimum/maximum green, exact clearance timing,
+locked next-phase selection, queue-based selection/extension, zero-demand ties,
+nonconflicting green masks, conservation, deterministic replay, and identical
+arrivals between modes over 5,000 seconds.
