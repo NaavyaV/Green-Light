@@ -1,0 +1,16 @@
+{
+  "source_commit": "d0b6d107472268802e8ed7e2aa9e38aa537ef5f9",
+  "description": "250-epoch baseline; evaluation files were uncommitted at preservation time",
+  "sha256": {
+    "models/traffic_mlp.pth": "53738f34e8381e22cddd8e5bc1243140247d61b4b7d6f6a4d77149d624fc57a8",
+    "ml_handoff/model_weights.txt": "334bbe83bce99636ee12eacd735a7d6afadba28e965386bc6ff65e3e11a055bc",
+    "ml_handoff/test_vectors.csv": "61fa6152b2c0fc56e9661a0365d1c1a34373d9870b43fb971446447d0ec26272",
+    "ml_handoff/ML_INTERFACE.md": "639f44d61e7a0b96e0b6a99a8b182624d36405cfa0ea9b16472402823a480d07",
+    "ml_handoff/export_for_cpp.py": "9c47a51a5f290f71689e569bffa98f2e552c659a70fd65911e3273467656c5cb",
+    "ml_handoff/traffic_mlp.hpp": "6815a54b162e7e6676e48a7219e877597ea67207ec6a2a3b23f84455cf06d0e9",
+    "scripts/03_train_model.py": "c031a2d638b359e06e1b9bc7b73220f1e76a83a04c22f24e5daf78307b1fd5f0",
+    "scripts/04_evaluate_conditions.py": "e3918cf9558865ab221921599878dce9cab84798525e99ddfa29677463a421b1",
+    "reports/week5_ml_evaluation.md": "1d715c8d0c7ab363e61748682ca3de3b11a17f1689f20192ad04c32e63c72856",
+    "reports/week5_ml_metrics.csv": "6ee13c4fefcbff1496450b273fa54642b0b334b03749ee46b40f31d439ac77a3"
+  }
+}
