@@ -64,7 +64,7 @@ def train_and_evaluate():
 
   # Training Loop
   print("Training PyTorch MLP model...")
-  epochs = 250
+  epochs = 680
   for epoch in range(epochs):
     model.train()
     optimizer.zero_grad()
