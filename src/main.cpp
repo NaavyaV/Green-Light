@@ -14,10 +14,17 @@ unsigned parse_unsigned(const char* text) {
 }
 int main(int argc, char** argv) {
     try {
-        if (argc > 3) throw std::invalid_argument("usage: green_light [seconds=60] [seed=42]");
+        if (argc > 5) throw std::invalid_argument("usage: green_light [seconds=60] [seed=42] [--controller fixed|reactive]");
         unsigned seconds = argc > 1 ? parse_unsigned(argv[1]) : 60;
         greenlight::SimulationConfig config;
         if (argc > 2) config.seed = parse_unsigned(argv[2]);
+        if (argc > 3) {
+            if (argc != 5 || std::string(argv[3]) != "--controller")
+                throw std::invalid_argument("expected --controller fixed|reactive");
+            const std::string mode(argv[4]);
+            if (mode == "reactive") config.controller = greenlight::ControllerMode::Reactive;
+            else if (mode != "fixed") throw std::invalid_argument("controller must be fixed or reactive");
+        }
         greenlight::Simulator sim(config);
         for (unsigned t = 0; t < seconds; ++t) std::cout << greenlight::status_line(sim.step()) << '\n';
     } catch (const std::exception& e) {

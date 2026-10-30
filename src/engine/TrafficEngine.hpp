@@ -45,7 +45,9 @@ struct TrafficState {
     std::uint64_t total_queue() const;
     double mean_departed_wait() const;
 };
+enum class ControllerMode { Fixed, Reactive };
 struct SimulationConfig {
+    ControllerMode controller = ControllerMode::Fixed;
     std::uint32_t seed = 42;
     // Independent Bernoulli arrivals: zero or one arrival per movement per second.
     std::array<double, movement_count> arrival_probability{
@@ -69,6 +71,21 @@ private:
     SignalStage stage_ = SignalStage::Green;
     unsigned elapsed_ = 0;
 };
+// Decisions use queues after the completed second; the next phase is locked through clearance.
+class ReactiveController {
+public:
+    explicit ReactiveController(SignalPlan plan);
+    void advance(const std::array<MovementState, movement_count>& movements);
+    SignalPhase phase() const { return phase_; }
+    SignalStage stage() const { return stage_; }
+    unsigned elapsed() const { return elapsed_; }
+private:
+    SignalPlan plan_;
+    SignalPhase phase_ = SignalPhase::NS_LEFT;
+    SignalPhase next_ = SignalPhase::NS_THROUGH_RIGHT;
+    SignalStage stage_ = SignalStage::Green;
+    unsigned elapsed_ = 0;
+};
 class Simulator {
 public:
     explicit Simulator(SimulationConfig config = {});
@@ -77,6 +94,7 @@ public:
 private:
     SimulationConfig config_;
     FixedTimeController controller_;
+    ReactiveController reactive_;
     std::mt19937 rng_;
     TrafficState state_;
     std::array<std::deque<std::uint64_t>, movement_count> queues_;

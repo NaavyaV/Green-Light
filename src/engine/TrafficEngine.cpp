@@ -25,6 +25,7 @@ void SignalPlan::validate() const {
 }
 void SimulationConfig::validate() const {
     signals.validate();
+    check(controller == ControllerMode::Fixed || controller == ControllerMode::Reactive, "invalid controller mode");
     check(service_per_green_second > 0, "service capacity must be positive");
     for (double p : arrival_probability)
         check(std::isfinite(p) && p >= 0 && p <= 1, "arrival probabilities must be finite and in [0,1]");
@@ -56,6 +57,35 @@ void FixedTimeController::advance() {
         phase_ = static_cast<SignalPhase>((static_cast<std::size_t>(phase_) + 1) % 4);
     }
 }
+ReactiveController::ReactiveController(SignalPlan plan) : plan_(std::move(plan)) { plan_.validate(); }
+void ReactiveController::advance(const std::array<MovementState, movement_count>& movements) {
+    ++elapsed_;
+    if (stage_ == SignalStage::Green) {
+        if (elapsed_ < plan_.min_green) return;
+        std::array<std::uint64_t, 4> demand{};
+        for (std::size_t p = 0; p < phase_masks.size(); ++p)
+            for (std::size_t i = 0; i < movement_count; ++i)
+                if (phase_masks[p][i]) demand[p] += movements[i].queue;
+        const auto current = static_cast<std::size_t>(phase_);
+        auto best = (current + 1) % 4;
+        // Cyclic tie-breaking among other phases; ties with current green extend it.
+        for (std::size_t offset = 2; offset < 4; ++offset) {
+            auto candidate = (current + offset) % 4;
+            if (demand[candidate] > demand[best]) best = candidate;
+        }
+        if (elapsed_ < plan_.max_green && demand[best] <= demand[current]) return;
+        next_ = static_cast<SignalPhase>(best);
+        stage_ = SignalStage::Yellow;
+        elapsed_ = 0;
+    } else if (stage_ == SignalStage::Yellow && elapsed_ >= plan_.yellow_seconds) {
+        stage_ = SignalStage::AllRed;
+        elapsed_ = 0;
+    } else if (stage_ == SignalStage::AllRed && elapsed_ >= plan_.all_red_seconds) {
+        phase_ = next_;
+        stage_ = SignalStage::Green;
+        elapsed_ = 0;
+    }
+}
 std::uint64_t TrafficState::throughput() const {
     std::uint64_t n = 0; for (const auto& m : movements) n += m.total_departures; return n;
 }
@@ -67,12 +97,14 @@ double TrafficState::mean_departed_wait() const {
     return throughput() ? static_cast<double>(wait) / static_cast<double>(throughput()) : 0;
 }
 Simulator::Simulator(SimulationConfig config)
-    : config_(std::move(config)), controller_(config_.signals), rng_(config_.seed) { config_.validate(); }
+    : config_(std::move(config)), controller_(config_.signals), reactive_(config_.signals), rng_(config_.seed) { config_.validate(); }
 const TrafficState& Simulator::step() {
     // Apply the signal for [t,t+1). Arrivals join at t, service occurs at t,
     // then remaining vehicles accrue one second of waiting. Publish at t+1.
-    state_.phase = controller_.phase(); state_.stage = controller_.stage();
-    state_.signal_elapsed = controller_.elapsed() + 1;
+    const bool reactive = config_.controller == ControllerMode::Reactive;
+    state_.phase = reactive ? reactive_.phase() : controller_.phase();
+    state_.stage = reactive ? reactive_.stage() : controller_.stage();
+    state_.signal_elapsed = (reactive ? reactive_.elapsed() : controller_.elapsed()) + 1;
     const auto mask = green_movements(state_.phase, state_.stage);
     for (std::size_t i = 0; i < movement_count; ++i) {
         auto& m = state_.movements[i];
@@ -93,7 +125,8 @@ const TrafficState& Simulator::step() {
         m.queued_vehicle_seconds += m.queue;
     }
     ++state_.time_seconds;
-    controller_.advance();
+    if (reactive) reactive_.advance(state_.movements);
+    else controller_.advance();
     return state_;
 }
 std::string status_line(const TrafficState& s) {

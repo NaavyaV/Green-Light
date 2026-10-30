@@ -113,13 +113,98 @@ void safety() {
         expect(rejected,"invalid config accepted");
     }
 }
+void reactive_limits() {
+    SignalPlan plan; plan.min_green = 3; plan.max_green = 7;
+    plan.green_seconds.fill(5); plan.yellow_seconds = 2; plan.all_red_seconds = 1;
+    std::array<MovementState, movement_count> demand{};
+    demand[7].queue = 50; // EW through must win over the initial NS left.
+    ReactiveController c(plan);
+    for (unsigned i = 0; i < plan.min_green; ++i) {
+        expect(c.stage() == SignalStage::Green, "reactive ended green before minimum");
+        c.advance(demand);
+    }
+    expect(c.stage() == SignalStage::Yellow, "reactive did not select higher queue");
+    demand[7].queue = 0; demand[1].queue = 100; // Must not change locked next phase.
+    for (unsigned i = 0; i < 2; ++i) {
+        expect(c.stage() == SignalStage::Yellow, "reactive yellow duration"); c.advance(demand);
+    }
+    expect(c.stage() == SignalStage::AllRed, "reactive skipped all-red"); c.advance(demand);
+    expect(c.phase() == SignalPhase::EW_THROUGH_RIGHT && c.stage() == SignalStage::Green,
+           "reactive clearance did not preserve selected phase");
+    demand.fill({}); demand[7].queue = 100;
+    for (unsigned i = 0; i < plan.max_green; ++i) {
+        expect(c.stage() == SignalStage::Green, "reactive failed to extend busy green"); c.advance(demand);
+    }
+    expect(c.stage() == SignalStage::Yellow, "reactive exceeded maximum green");
+    // Zero demand ties must remain deterministic and still respect max green.
+    ReactiveController idle(plan); demand.fill({});
+    for (unsigned i=0;i<plan.max_green;++i) {
+        expect(idle.stage()==SignalStage::Green,"idle green ended early"); idle.advance(demand);
+    }
+    expect(idle.stage()==SignalStage::Yellow,"idle green exceeded maximum");
+}
+void reactive_simulation() {
+    SimulationConfig config; config.controller = ControllerMode::Reactive;
+    Simulator sim(config), replay(config);
+    SimulationConfig baseline = config; baseline.controller = ControllerMode::Fixed;
+    Simulator fixed(baseline);
+    SignalStage previous_stage = SignalStage::Green;
+    SignalPhase previous_phase = SignalPhase::NS_LEFT;
+    unsigned run = 0;
+    std::array<std::uint64_t, movement_count> previous_queue{};
+    for (unsigned t=0;t<5000;++t) {
+        const auto& s=sim.step(); const auto& r=replay.step(); const auto& f=fixed.step();
+        expect(status_line(s)==status_line(r),"reactive deterministic replay");
+        if (s.stage != previous_stage) {
+            if(previous_stage==SignalStage::Green) {
+                expect(run>=config.signals.min_green && run<=config.signals.max_green,"reactive green limits");
+                expect(s.stage==SignalStage::Yellow,"green must transition to yellow");
+            } else if(previous_stage==SignalStage::Yellow) {
+                expect(run==config.signals.yellow_seconds && s.stage==SignalStage::AllRed,"yellow clearance");
+            } else {
+                expect(run==config.signals.all_red_seconds && s.stage==SignalStage::Green,"all-red clearance");
+                expect(s.phase!=previous_phase,"reactive failed to switch phase");
+            }
+            run=0;
+        } else expect(s.phase==previous_phase,"phase changed without clearance");
+        ++run;
+        if(s.stage==SignalStage::Green) expect(run<=config.signals.max_green,"unbounded green");
+        previous_stage=s.stage;previous_phase=s.phase;
+        const auto mask=green_movements(s.phase,s.stage);
+        for(std::size_t i=0;i<movement_count;++i) {
+            const auto& m=s.movements[i]; const auto& n=r.movements[i];
+            expect(m.arrivals==f.movements[i].arrivals,"controllers received different arrival streams");
+            expect(m.total_arrivals==m.total_departures+m.queue,"reactive cumulative conservation");
+            expect(m.departures<=previous_queue[i]+m.arrivals,"reactive over-service");
+            expect(m.queue==previous_queue[i]+m.arrivals-m.departures,"reactive step conservation");
+            expect(mask[i] || m.departures==0,"reactive departure without green");
+            expect(m.queued_vehicle_seconds==n.queued_vehicle_seconds && m.departed_wait_seconds==n.departed_wait_seconds,
+                   "reactive replay waiting statistics");
+            previous_queue[i]=m.queue;
+            for(std::size_t j=i+1;j<movement_count;++j)
+                expect(!(mask[i] && mask[j]) || !conflicting(static_cast<Movement>(i),static_cast<Movement>(j)),
+                       "reactive conflicting greens");
+        }
+        expect(!s.prediction,"reactive must not use ML");
+    }
+    // Different seed must change reactive arrivals.
+    config.seed=123;Simulator other(config);Simulator original;
+    bool different=false;
+    for(unsigned t=0;t<100;++t) {
+        const auto& a=other.step();const auto& b=original.step();
+        for(std::size_t i=0;i<movement_count;++i)different=different || a.movements[i].arrivals!=b.movements[i].arrivals;
+    }
+    expect(different,"reactive seed ignored");
+}
 int main(int argc,char** argv) {
     try {
         if(argc!=2)throw std::runtime_error("expected test name");
         std::string name=argv[1];
         if(name=="conservation")conservation();else if(name=="timing")timing();
         else if(name=="deterministic")deterministic();else if(name=="waiting")waiting();
-        else if(name=="safety")safety();else throw std::runtime_error("unknown test");
+        else if(name=="safety")safety();
+        else if(name=="reactive_limits")reactive_limits();
+        else if(name=="reactive_simulation")reactive_simulation();else throw std::runtime_error("unknown test");
         std::cout<<"PASS "<<name<<'\n';
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }
