@@ -60,20 +60,45 @@ void FixedTimeController::advance() {
 ReactiveController::ReactiveController(SignalPlan plan) : plan_(std::move(plan)) { plan_.validate(); }
 void ReactiveController::advance(const std::array<MovementState, movement_count>& movements) {
     ++elapsed_;
+    std::array<std::uint64_t, 4> demand{}, oldest{};
+    for (std::size_t p = 0; p < phase_masks.size(); ++p) {
+        for (std::size_t i = 0; i < movement_count; ++i) {
+            if (!phase_masks[p][i]) continue;
+            demand[p] += movements[i].queue;
+            oldest[p] = std::max(oldest[p], movements[i].oldest_wait_seconds);
+        }
+        if (!demand[p] || (stage_ == SignalStage::Green && p == static_cast<std::size_t>(phase_)))
+            unserved_seconds_[p] = 0;
+        else ++unserved_seconds_[p];
+    }
     if (stage_ == SignalStage::Green) {
         if (elapsed_ < plan_.min_green) return;
-        std::array<std::uint64_t, 4> demand{};
-        for (std::size_t p = 0; p < phase_masks.size(); ++p)
-            for (std::size_t i = 0; i < movement_count; ++i)
-                if (phase_masks[p][i]) demand[p] += movements[i].queue;
         const auto current = static_cast<std::size_t>(phase_);
         auto best = (current + 1) % 4;
-        // Cyclic tie-breaking among other phases; ties with current green extend it.
+        const auto starvation_limit = 2ULL * (static_cast<std::uint64_t>(plan_.max_green)
+                                             + plan_.yellow_seconds + plan_.all_red_seconds);
+        auto overdue = [&](std::size_t p) { return demand[p] && unserved_seconds_[p] >= starvation_limit; };
+        auto better = [&](std::size_t a, std::size_t b) {
+            if (overdue(a) != overdue(b)) return overdue(a);
+            if (overdue(a) && unserved_seconds_[a] != unserved_seconds_[b])
+                return unserved_seconds_[a] > unserved_seconds_[b];
+            // Current queue demand and real FIFO head wait, with cyclic tie-breaking.
+            const long double score_a = demand[a] + static_cast<long double>(oldest[a]) / 5;
+            const long double score_b = demand[b] + static_cast<long double>(oldest[b]) / 5;
+            return score_a > score_b;
+        };
         for (std::size_t offset = 2; offset < 4; ++offset) {
             auto candidate = (current + offset) % 4;
-            if (demand[candidate] > demand[best]) best = candidate;
+            if (better(candidate, best)) best = candidate;
         }
-        if (elapsed_ < plan_.max_green && demand[best] <= demand[current]) return;
+        // Amortize clearance with the existing phase-specific nominal green as a batch.
+        // An empty current phase can release early; fairness overrides the batch.
+        const auto batch = plan_.green_seconds[current];
+        const bool exhausted = demand[current] == 0 && demand[best] > 0;
+        const bool pressure = elapsed_ >= batch &&
+            static_cast<long double>(demand[best]) + static_cast<long double>(oldest[best]) / 5 >
+            1.5L * demand[current] + static_cast<long double>(oldest[current]) / 5;
+        if (elapsed_ < plan_.max_green && !overdue(best) && !exhausted && !pressure) return;
         next_ = static_cast<SignalPhase>(best);
         stage_ = SignalStage::Yellow;
         elapsed_ = 0;
@@ -122,6 +147,7 @@ const TrafficState& Simulator::step() {
         }
         m.total_departures += m.departures;
         m.queue = queues_[i].size();
+        m.oldest_wait_seconds = queues_[i].empty() ? 0 : state_.time_seconds + 1 - queues_[i].front();
         m.queued_vehicle_seconds += m.queue;
     }
     ++state_.time_seconds;
