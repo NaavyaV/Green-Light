@@ -31,3 +31,10 @@ for the explicit training-mean speed imputation mode. Use the [predictive contro
 to exercise forecast-based signal decisions. Fixed and reactive controllers
 operate independently of forecasts. Training data, exporter,
 evaluations, and model baselines are maintained on the `ML` branch.
+
+## Frontend handoff
+
+The engine supports versioned JSON Lines output for replay in a frontend
+scratch copy. See the [snapshot schema and React adapter example](src/engine/README.md#json-lines-snapshots-and-frontend-handoff)
+for build commands, forecast metadata, and the dashboard fields that require
+adaptation.

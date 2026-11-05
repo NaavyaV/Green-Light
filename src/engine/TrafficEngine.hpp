@@ -110,5 +110,6 @@ private:
     std::array<std::array<std::uint64_t, movement_count>, 60> arrivals_{};
     std::array<std::deque<std::uint64_t>, movement_count> queues_;
 };
+std::string snapshot_json(const TrafficState& state, ControllerMode mode);
 std::string status_line(const TrafficState& state);
 } // namespace greenlight

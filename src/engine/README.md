@@ -213,3 +213,84 @@ and changed queued vehicle-seconds by +171, −69, and −18. The fairness measu
 matched reactive on all three seeds. These runs exercise the controller with
 imputed speed and synthetic arrivals. Accuracy with observed speeds and
 performance on other traffic distributions remain unverified.
+
+## JSON Lines snapshots and frontend handoff
+
+From the engine checkout:
+
+```sh
+cmake -S . -B /tmp/green-light-build
+cmake --build /tmp/green-light-build
+ctest --test-dir /tmp/green-light-build --output-on-failure
+/tmp/green-light-build/green_light 120 42 --controller predictive \
+  --ml-impute-speed ml_handoff/model_weights.txt --format jsonl > /tmp/green-light-replay.jsonl
+```
+
+Node.js is required for the JSONL contract test. An engine-only build can
+configure with `-DBUILD_TESTING=OFF`. The CLI defaults to human-readable text
+(`--format text`). JSONL writes exactly one JSON object per completed simulated
+second to stdout, with diagnostics on stderr and no separate forecast lines.
+The CLI advances as fast as it can. A replay consumer controls playback speed.
+
+### Snapshot schema version 1
+
+| Field | Type and meaning |
+|---|---|
+| `schema_version` | Integer `1`. Consumers should reject unsupported versions. |
+| `time_seconds` | Elapsed simulated seconds, starting at 1. |
+| `phase` | `NS_LEFT`, `NS_THROUGH_RIGHT`, `EW_LEFT`, or `EW_THROUGH_RIGHT`. |
+| `light_state` | `green`, `yellow`, or `all_red`. During all-red, `phase` still identifies the phase being cleared. |
+| `phase_elapsed_seconds` | Seconds spent in the **current light state**, including the interval just served. Resets to 1 on the first completed interval of a new state. |
+| `movement_order` | `N_LEFT,N_THROUGH,N_RIGHT,S_LEFT,S_THROUGH,S_RIGHT,E_LEFT,E_THROUGH,E_RIGHT,W_LEFT,W_THROUGH,W_RIGHT` as a 12-string array. Directions indicate travel direction. |
+| `queues` | 12 integer queue lengths after service. |
+| `arrivals`, `departures` | 12 integer arrival and departure counts for the completed second. |
+| `throughput` | Total completed vehicles since the run began, in vehicles. |
+| `mean_completed_wait_seconds` | Cumulative mean wait of completed vehicles, in seconds. Zero before any departure. |
+| `controller_mode` | `fixed`, `reactive`, or `predictive`. |
+| `decision_source` | `null` for fixed/reactive. Predictive emits `predictive_imputed_speed`, `reactive_fallback`, or `safety_timing`. |
+| `forecast` | `null` before warm-up or without a model. Otherwise contains `generated_at_seconds`, `horizon_seconds` (30), `speed_input` (`imputed_training_mean`), and `arrivals` (12 finite nonnegative counts over the horizon). |
+
+All movement arrays share the same order. The signal fields describe the
+interval just served. The decision source describes the controller update
+after that interval. The forecast covers the 30 seconds following its
+generation timestamp. It first appears at second 60, refreshes every five
+seconds, and keeps its original timestamp between updates. The speed marker
+identifies values imputed from the model scaler.
+
+### React replay example
+
+The existing Vite app starts a browser-local `Simulation` in
+`useSimulation.js`. Its canvas reads live vehicle positions, and its forecast
+and controller panels expect additional browser-model fields. For a replay,
+copy [the adapter](../../integration/replay.mjs) into a frontend scratch copy
+and put the recording in the Vite `public` directory as `replay.jsonl`. Start
+that copy with `npm ci` and `npm run dev`. A replay component can load a frame
+and pass its compatible fields to the existing phase cards:
+
+```js
+import { parseReplay, toReplayView } from './replay.mjs';
+import { PHASES } from './sim/constants.js';
+
+const response = await fetch('/replay.jsonl');
+if (!response.ok) throw new Error('Could not load the replay');
+const frames = parseReplay(await response.text());
+const view = toReplayView(frames.at(-1)); // choose a frame with your playback clock
+view.phaseQueued = PHASES.map(phase =>
+  phase.moves.reduce((sum, key) => sum + view.stats.queues[key], 0));
+```
+
+Pass `view` to `PhaseSelector` in a read-only replay screen. Disable its
+force/resume actions and display forecast availability separately during
+warm-up, since the existing cards render zero when the forecast is absent.
+The adapter maps travel direction to the opposite entry approach, for
+example `N_LEFT → SL`. It preserves cumulative throughput and wait under
+distinct names so the frontend's rolling per-minute throughput and
+60-second mean wait labels stay accurate.
+
+The remaining frontend work is to wire a replay clock into the UI and adapt
+the panels to the available fields. Per-vehicle coordinates, pedestrian
+state, a future signal schedule, model confidence, and browser-controller
+recommendations are outside this snapshot contract. For a later live feed,
+the smallest bridge would stream a single engine process's stdout as HTTP
+JSONL and forward stderr separately. Static replay uses the existing Vite
+dev server and needs no such bridge.

@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
     try {
         int arg = 1;
         unsigned seconds = 60;
+        bool jsonl = false;
         greenlight::SimulationConfig config;
         if (arg < argc && std::string(argv[arg]).rfind("--", 0) != 0)
             seconds = parse_unsigned(argv[arg++]);
@@ -31,6 +32,10 @@ int main(int argc, char** argv) {
                 else if (value == "predictive") config.controller = greenlight::ControllerMode::Predictive;
                 else if (value == "fixed") config.controller = greenlight::ControllerMode::Fixed;
                 else throw std::invalid_argument("controller must be fixed, reactive, or predictive");
+            } else if (option == "--format") {
+                if (value != "text" && value != "jsonl")
+                    throw std::invalid_argument("format must be text or jsonl");
+                jsonl = value == "jsonl";
             } else if (option == "--ml-impute-speed") {
                 config.imputed_speed_model = value;
             } else {
@@ -40,6 +45,10 @@ int main(int argc, char** argv) {
         greenlight::Simulator sim(config);
         for (unsigned t = 0; t < seconds; ++t) {
             const auto& state = sim.step();
+            if (jsonl) {
+                std::cout << greenlight::snapshot_json(state, config.controller) << '\n';
+                continue;
+            }
             std::cout << greenlight::status_line(state) << '\n';
             if (state.prediction && state.prediction->generated_at == state.time_seconds) {
                 std::cout << "forecast t=" << state.time_seconds

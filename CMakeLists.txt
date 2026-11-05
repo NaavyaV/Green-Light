@@ -3,7 +3,7 @@ project(GreenLightEngine LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-add_library(traffic_engine src/engine/TrafficEngine.cpp)
+add_library(traffic_engine src/engine/TrafficEngine.cpp src/engine/SnapshotJson.cpp)
 target_include_directories(traffic_engine PUBLIC src)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(traffic_engine PRIVATE -Wall -Wextra -Wpedantic)
@@ -12,6 +12,13 @@ add_executable(green_light src/main.cpp)
 target_link_libraries(green_light PRIVATE traffic_engine)
 include(CTest)
 if(BUILD_TESTING)
+  find_program(NODE_EXECUTABLE NAMES node)
+  if(NOT NODE_EXECUTABLE)
+    message(FATAL_ERROR "Node.js is required for the JSONL contract test (or use -DBUILD_TESTING=OFF).")
+  endif()
+  add_test(NAME snapshot_json COMMAND ${NODE_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/snapshot_json.mjs
+    $<TARGET_FILE:green_light> ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt)
   add_executable(mlp_parity ml_handoff/test_mlp.cpp)
   add_test(NAME mlp_parity COMMAND mlp_parity
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt
