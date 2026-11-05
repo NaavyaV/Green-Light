@@ -1,4 +1,5 @@
 #pragma once
+#include "../../ml_handoff/traffic_mlp.hpp"
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -41,7 +42,7 @@ struct TrafficState {
     SignalPhase phase = SignalPhase::NS_LEFT;
     SignalStage stage = SignalStage::Green;
     unsigned signal_elapsed = 0;
-    std::optional<Prediction> prediction; // Unavailable: no ML inference or speed observations.
+    std::optional<Prediction> prediction;
     std::uint64_t throughput() const;
     std::uint64_t total_queue() const;
     double mean_departed_wait() const;
@@ -55,6 +56,8 @@ struct SimulationConfig {
         .15, .35, .10, .15, .35, .10, .15, .35, .10, .15, .35, .10};
     unsigned service_per_green_second = 1;
     SignalPlan signals;
+    // Opt in to forecasting with training-mean speed imputation.
+    std::optional<std::string> imputed_speed_model;
     void validate() const;
 };
 std::array<bool, movement_count> green_movements(SignalPhase phase, SignalStage stage);
@@ -93,12 +96,15 @@ public:
     explicit Simulator(SimulationConfig config = {});
     const TrafficState& step();
     const TrafficState& state() const { return state_; }
+    std::optional<std::array<double, 60>> forecast_features() const;
 private:
     SimulationConfig config_;
     FixedTimeController controller_;
     ReactiveController reactive_;
     std::mt19937 rng_;
     TrafficState state_;
+    std::optional<TrafficMLP> model_;
+    std::array<std::array<std::uint64_t, movement_count>, 60> arrivals_{};
     std::array<std::deque<std::uint64_t>, movement_count> queues_;
 };
 std::string status_line(const TrafficState& state);

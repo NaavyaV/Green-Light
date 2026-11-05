@@ -38,9 +38,8 @@ retains cumulative queued vehicle-seconds (including ongoing waits), departed wa
 arrivals/departures for the last second, and their cumulative totals. No statistics
 claim real-world validation. This is an abstract queue simulation, separate from React.
 
-`Prediction` is only a future integration data structure. `TrafficState::prediction`
-is empty throughout these stages. The fixed controller never reads forecasts.
-The ML handoff and standalone demo are unchanged.
+`TrafficState::prediction` is populated in the optional forecast mode described
+below. Signal decisions remain independent of forecasts.
 
 ## Reactive mode
 
@@ -132,3 +131,29 @@ improve on all three; throughput improves on 42 and 7 but decreases by five on
 123. These finite-horizon results do not establish universal superiority. Tests
 cover persistent highly imbalanced queues, bounded phase access, batching,
 waiting-aware selection, replay, conservation, and all safety transitions.
+
+## Optional simulator forecasting
+
+```sh
+/tmp/gl-nov5-build/green_light 75 42 --controller reactive \
+  --ml-impute-speed ml_handoff/model_weights.txt
+```
+
+The opt-in flag loads the frozen C++ MLP and adds forecast lines at simulated
+seconds 60, 65, 70, and so on. Each forecast covers the following 30 seconds
+and is retained in `TrafficState::prediction` until the next forecast. The
+controller does not consume it. The original CLI output is unchanged by default.
+
+At time `t`, the four windows count simulator arrivals in `[t-width,t)` in
+vehicles, grouped by the exported movement order. Each movement's fifth
+feature uses its exported training mean for speed, in the model's original
+speed units. This is explicit mean imputation, not a simulated or measured
+speed. It makes the standardized speed inputs zero. Queue length, throughput,
+and waiting time cannot recover speed in this simulator because there are no
+trajectories or distances. The training data counts distinct observed vehicles
+per five-second bucket, which can include a vehicle in multiple buckets.
+Simulator arrivals count entry events only, so the input distributions can differ.
+
+This mode demonstrates runtime inference, not validated forecast quality.
+A deployment needs compatible speed observations and evaluation on the intended
+traffic stream, or a separately trained and validated model without speed.

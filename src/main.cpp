@@ -15,19 +15,40 @@ unsigned parse_unsigned(const char* text) {
 }
 int main(int argc, char** argv) {
     try {
-        if (argc > 5) throw std::invalid_argument("usage: green_light [seconds=60] [seed=42] [--controller fixed|reactive]");
-        unsigned seconds = argc > 1 ? parse_unsigned(argv[1]) : 60;
+        int arg = 1;
+        unsigned seconds = 60;
         greenlight::SimulationConfig config;
-        if (argc > 2) config.seed = parse_unsigned(argv[2]);
-        if (argc > 3) {
-            if (argc != 5 || std::string(argv[3]) != "--controller")
-                throw std::invalid_argument("expected --controller fixed|reactive");
-            const std::string mode(argv[4]);
-            if (mode == "reactive") config.controller = greenlight::ControllerMode::Reactive;
-            else if (mode != "fixed") throw std::invalid_argument("controller must be fixed or reactive");
+        if (arg < argc && std::string(argv[arg]).rfind("--", 0) != 0)
+            seconds = parse_unsigned(argv[arg++]);
+        if (arg < argc && std::string(argv[arg]).rfind("--", 0) != 0)
+            config.seed = parse_unsigned(argv[arg++]);
+        while (arg < argc) {
+            const std::string option(argv[arg++]);
+            if (arg == argc) throw std::invalid_argument("Missing value for " + option);
+            const std::string value(argv[arg++]);
+            if (option == "--controller") {
+                if (value == "reactive") config.controller = greenlight::ControllerMode::Reactive;
+                else if (value == "fixed") config.controller = greenlight::ControllerMode::Fixed;
+                else throw std::invalid_argument("controller must be fixed or reactive");
+            } else if (option == "--ml-impute-speed") {
+                config.imputed_speed_model = value;
+            } else {
+                throw std::invalid_argument("Unknown option: " + option);
+            }
         }
         greenlight::Simulator sim(config);
-        for (unsigned t = 0; t < seconds; ++t) std::cout << greenlight::status_line(sim.step()) << '\n';
+        for (unsigned t = 0; t < seconds; ++t) {
+            const auto& state = sim.step();
+            std::cout << greenlight::status_line(state) << '\n';
+            if (state.prediction && state.prediction->generated_at == state.time_seconds) {
+                std::cout << "forecast t=" << state.time_seconds
+                          << " horizon=30s speed=imputed_training_mean";
+                for (std::size_t i = 0; i < greenlight::movement_count; ++i)
+                    std::cout << ' ' << greenlight::movement_names[i] << '='
+                              << state.prediction->arrivals[i];
+                std::cout << '\n';
+            }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Engine error: " << e.what() << '\n'; return 1;
     }

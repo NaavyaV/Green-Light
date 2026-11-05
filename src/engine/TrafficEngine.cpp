@@ -122,7 +122,41 @@ double TrafficState::mean_departed_wait() const {
     return throughput() ? static_cast<double>(wait) / static_cast<double>(throughput()) : 0;
 }
 Simulator::Simulator(SimulationConfig config)
-    : config_(std::move(config)), controller_(config_.signals), reactive_(config_.signals), rng_(config_.seed) { config_.validate(); }
+    : config_(std::move(config)), controller_(config_.signals), reactive_(config_.signals), rng_(config_.seed) {
+    config_.validate();
+    if (!config_.imputed_speed_model) return;
+    const auto& path = *config_.imputed_speed_model;
+    std::ifstream file(path);
+    // Validate dimensions before the reference loader allocates arrays.
+    for (int expected : {5, 60, 128, 64, 32, 12}) {
+        int value = 0;
+        if (!(file >> value) || value != expected)
+            throw std::runtime_error("Invalid or unreadable MLP header: " + path);
+    }
+    model_.emplace();
+    model_->load(path);
+    for (const auto* scales : {&model_->scale, &model_->target_scale})
+        for (double scale : *scales)
+            if (!std::isfinite(scale) || scale <= 0)
+                throw std::runtime_error("Invalid MLP scaler: " + path);
+}
+
+std::optional<std::array<double, 60>> Simulator::forecast_features() const {
+    if (!model_ || state_.time_seconds < arrivals_.size()) return std::nullopt;
+    std::array<double, 60> features{};
+    for (std::size_t movement = 0; movement < movement_count; ++movement) {
+        const auto base = movement * 5;
+        std::uint64_t count = 0;
+        std::size_t slot = base;
+        for (std::size_t age = 1; age <= arrivals_.size(); ++age) {
+            count += arrivals_[(state_.time_seconds - age) % arrivals_.size()][movement];
+            if (age == 5 || age == 15 || age == 30 || age == 60)
+                features[slot++] = static_cast<double>(count);
+        }
+        features[base + 4] = model_->mean[base + 4];
+    }
+    return features;
+}
 const TrafficState& Simulator::step() {
     // Apply the signal for [t,t+1). Arrivals join at t, service occurs at t,
     // then remaining vehicles accrue one second of waiting. Publish at t+1.
@@ -137,6 +171,7 @@ const TrafficState& Simulator::step() {
         const double sample = static_cast<double>(rng_()) / 4294967296.0;
         m.arrivals = sample < config_.arrival_probability[i] ? 1 : 0;
         m.total_arrivals += m.arrivals;
+        if (model_) arrivals_[state_.time_seconds % arrivals_.size()][i] = m.arrivals;
         if (m.arrivals) queues_[i].push_back(state_.time_seconds);
         m.departures = 0;
         if (mask[i]) {
@@ -153,6 +188,19 @@ const TrafficState& Simulator::step() {
     ++state_.time_seconds;
     if (reactive) reactive_.advance(state_.movements);
     else controller_.advance();
+    if (state_.time_seconds % 5 == 0) {
+        if (const auto features = forecast_features()) {
+            const auto counts = model_->forward_raw({features->begin(), features->end()});
+            Prediction prediction;
+            prediction.generated_at = state_.time_seconds;
+            for (std::size_t i = 0; i < movement_count; ++i) {
+                if (!std::isfinite(counts[i]))
+                    throw std::runtime_error("MLP returned a non-finite prediction");
+                prediction.arrivals[i] = std::max(0.0, counts[i]);
+            }
+            state_.prediction = prediction;
+        }
+    }
     return state_;
 }
 std::string status_line(const TrafficState& s) {

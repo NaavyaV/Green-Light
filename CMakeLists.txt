@@ -16,6 +16,11 @@ if(BUILD_TESTING)
   add_test(NAME mlp_parity COMMAND mlp_parity
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/test_vectors.csv)
+  add_executable(simulator_forecast tests/simulator_forecast.cpp)
+  target_link_libraries(simulator_forecast PRIVATE traffic_engine)
+  add_test(NAME simulator_forecast COMMAND simulator_forecast
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/test_vectors.csv)
   add_executable(controller_benchmark tests/controller_benchmark.cpp)
   target_link_libraries(controller_benchmark PRIVATE traffic_engine)
   add_test(NAME controller_benchmark COMMAND controller_benchmark)
