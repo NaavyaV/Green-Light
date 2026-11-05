@@ -16,9 +16,19 @@ else()
     target_compile_options(green_light_options INTERFACE -Wall -Wextra -Wpedantic)
 endif()
 
+# Engine code shared by the program and the tests. Each stage adds its .cpp files here.
+add_library(green_light_engine STATIC
+    src/sim/Intersection.cpp
+)
+target_link_libraries(green_light_engine PUBLIC green_light_options)
+
 # Main program.
 add_executable(green_light src/main.cpp)
-target_link_libraries(green_light PRIVATE green_light_options)
+target_link_libraries(green_light PRIVATE green_light_engine)
 
-# Tests are added in later stages with add_executable + add_test.
+# Tests: one executable per test file, each registered with CTest.
 enable_testing()
+
+add_executable(test_intersection tests/test_intersection.cpp)
+target_link_libraries(test_intersection PRIVATE green_light_engine)
+add_test(NAME test_intersection COMMAND test_intersection)
