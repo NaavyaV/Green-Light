@@ -25,8 +25,9 @@ is retained in `src/main.cpp`.
 
 `ml_handoff/` contains only the frozen inference header, exported 680-epoch weights,
 interface contract, and parity fixtures/test required by this C++ branch. CTest
-runs inference parity, simulator forecasting, nine engine tests, and the
-controller benchmark. See [optional simulator forecasting](src/engine/README.md#optional-simulator-forecasting)
-for the explicit training-mean speed imputation mode. Fixed and reactive
-controllers operate independently of forecasts. Training data, exporter,
+runs inference parity, simulator forecasting, engine and predictive controller
+tests, and the three-controller benchmark. See [optional simulator forecasting](src/engine/README.md#optional-simulator-forecasting)
+for the explicit training-mean speed imputation mode. Use the [predictive controller commands](src/engine/README.md#predictive-mode)
+to exercise forecast-based signal decisions. Fixed and reactive controllers
+operate independently of forecasts. Training data, exporter,
 evaluations, and model baselines are maintained on the `ML` branch.

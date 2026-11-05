@@ -23,7 +23,15 @@ if(BUILD_TESTING)
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/test_vectors.csv)
   add_executable(controller_benchmark tests/controller_benchmark.cpp)
   target_link_libraries(controller_benchmark PRIVATE traffic_engine)
-  add_test(NAME controller_benchmark COMMAND controller_benchmark)
+  add_test(NAME controller_benchmark COMMAND controller_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt)
+  add_executable(predictive_controller_tests tests/predictive_controller.cpp)
+  target_link_libraries(predictive_controller_tests PRIVATE traffic_engine)
+  add_test(NAME predictive_controller COMMAND predictive_controller_tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt)
+  add_test(NAME predictive_cli COMMAND green_light 120 42 --controller predictive
+    --ml-impute-speed ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt)
+  set_tests_properties(predictive_cli PROPERTIES PASS_REGULAR_EXPRESSION "decision=predictive_imputed_speed")
   add_executable(engine_tests tests/engine_tests.cpp)
   target_link_libraries(engine_tests PRIVATE traffic_engine)
   foreach(case conservation timing deterministic waiting safety reactive_limits reactive_simulation reactive_fairness reactive_multiseed)

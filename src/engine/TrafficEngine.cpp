@@ -25,7 +25,8 @@ void SignalPlan::validate() const {
 }
 void SimulationConfig::validate() const {
     signals.validate();
-    check(controller == ControllerMode::Fixed || controller == ControllerMode::Reactive, "invalid controller mode");
+    check(controller == ControllerMode::Fixed || controller == ControllerMode::Reactive ||
+          controller == ControllerMode::Predictive, "invalid controller mode");
     check(service_per_green_second > 0, "service capacity must be positive");
     for (double p : arrival_probability)
         check(std::isfinite(p) && p >= 0 && p <= 1, "arrival probabilities must be finite and in [0,1]");
@@ -58,7 +59,8 @@ void FixedTimeController::advance() {
     }
 }
 ReactiveController::ReactiveController(SignalPlan plan) : plan_(std::move(plan)) { plan_.validate(); }
-void ReactiveController::advance(const std::array<MovementState, movement_count>& movements) {
+DecisionSource ReactiveController::advance(
+    const std::array<MovementState, movement_count>& movements, const Prediction* forecast) {
     ++elapsed_;
     std::array<std::uint64_t, 4> demand{}, oldest{};
     for (std::size_t p = 0; p < phase_masks.size(); ++p) {
@@ -72,7 +74,15 @@ void ReactiveController::advance(const std::array<MovementState, movement_count>
         else ++unserved_seconds_[p];
     }
     if (stage_ == SignalStage::Green) {
-        if (elapsed_ < plan_.min_green) return;
+        if (elapsed_ < plan_.min_green) return DecisionSource::SafetyTiming;
+        std::array<long double, 4> forecast_demand{};
+        if (forecast) {
+            for (std::size_t p = 0; p < phase_masks.size(); ++p)
+                for (std::size_t i = 0; i < movement_count; ++i)
+                    if (phase_masks[p][i])
+                        forecast_demand[p] += static_cast<long double>(forecast->arrivals[i]) / 3;
+        }
+        const auto source = forecast ? DecisionSource::Forecast : DecisionSource::ReactiveFallback;
         const auto current = static_cast<std::size_t>(phase_);
         auto best = (current + 1) % 4;
         const auto starvation_limit = 2ULL * (static_cast<std::uint64_t>(plan_.max_green)
@@ -85,7 +95,8 @@ void ReactiveController::advance(const std::array<MovementState, movement_count>
             // Current queue demand and real FIFO head wait, with cyclic tie-breaking.
             const long double score_a = demand[a] + static_cast<long double>(oldest[a]) / 5;
             const long double score_b = demand[b] + static_cast<long double>(oldest[b]) / 5;
-            return score_a > score_b;
+            if (overdue(a)) return score_a > score_b;
+            return score_a + forecast_demand[a] > score_b + forecast_demand[b];
         };
         for (std::size_t offset = 2; offset < 4; ++offset) {
             auto candidate = (current + offset) % 4;
@@ -96,12 +107,17 @@ void ReactiveController::advance(const std::array<MovementState, movement_count>
         const auto batch = plan_.green_seconds[current];
         const bool exhausted = demand[current] == 0 && demand[best] > 0;
         const bool pressure = elapsed_ >= batch &&
-            static_cast<long double>(demand[best]) + static_cast<long double>(oldest[best]) / 5 >
-            1.5L * demand[current] + static_cast<long double>(oldest[current]) / 5;
-        if (elapsed_ < plan_.max_green && !overdue(best) && !exhausted && !pressure) return;
+            static_cast<long double>(demand[best]) + static_cast<long double>(oldest[best]) / 5
+                + forecast_demand[best] >
+            1.5L * demand[current] + static_cast<long double>(oldest[current]) / 5
+                + forecast_demand[current];
+        const auto decision_source = overdue(best) ? DecisionSource::SafetyTiming : source;
+        if (elapsed_ < plan_.max_green && !overdue(best) && !exhausted && !pressure)
+            return decision_source;
         next_ = static_cast<SignalPhase>(best);
         stage_ = SignalStage::Yellow;
         elapsed_ = 0;
+        return decision_source;
     } else if (stage_ == SignalStage::Yellow && elapsed_ >= plan_.yellow_seconds) {
         stage_ = SignalStage::AllRed;
         elapsed_ = 0;
@@ -110,6 +126,7 @@ void ReactiveController::advance(const std::array<MovementState, movement_count>
         stage_ = SignalStage::Green;
         elapsed_ = 0;
     }
+    return DecisionSource::SafetyTiming;
 }
 std::uint64_t TrafficState::throughput() const {
     std::uint64_t n = 0; for (const auto& m : movements) n += m.total_departures; return n;
@@ -160,7 +177,8 @@ std::optional<std::array<double, 60>> Simulator::forecast_features() const {
 const TrafficState& Simulator::step() {
     // Apply the signal for [t,t+1). Arrivals join at t, service occurs at t,
     // then remaining vehicles accrue one second of waiting. Publish at t+1.
-    const bool reactive = config_.controller == ControllerMode::Reactive;
+    const bool reactive = config_.controller != ControllerMode::Fixed;
+    const bool predictive = config_.controller == ControllerMode::Predictive;
     state_.phase = reactive ? reactive_.phase() : controller_.phase();
     state_.stage = reactive ? reactive_.stage() : controller_.stage();
     state_.signal_elapsed = (reactive ? reactive_.elapsed() : controller_.elapsed()) + 1;
@@ -186,8 +204,6 @@ const TrafficState& Simulator::step() {
         m.queued_vehicle_seconds += m.queue;
     }
     ++state_.time_seconds;
-    if (reactive) reactive_.advance(state_.movements);
-    else controller_.advance();
     if (state_.time_seconds % 5 == 0) {
         if (const auto features = forecast_features()) {
             const auto counts = model_->forward_raw({features->begin(), features->end()});
@@ -200,6 +216,13 @@ const TrafficState& Simulator::step() {
             }
             state_.prediction = prediction;
         }
+    }
+    if (reactive) {
+        const auto* forecast = predictive && state_.prediction ? &*state_.prediction : nullptr;
+        const auto source = reactive_.advance(state_.movements, forecast);
+        if (predictive) state_.predictive_decision = source;
+    } else {
+        controller_.advance();
     }
     return state_;
 }
@@ -214,6 +237,11 @@ std::string status_line(const TrafficState& s) {
     for (std::size_t i = 0; i < movement_count; ++i) out << (i ? "," : "") << s.movements[i].queue;
     out << "] throughput=" << s.throughput() << " avg_wait=" << std::fixed << std::setprecision(2)
         << s.mean_departed_wait() << 's';
+    if (s.predictive_decision) {
+        const auto source = *s.predictive_decision;
+        out << " decision=" << (source == DecisionSource::Forecast ? "predictive_imputed_speed"
+            : source == DecisionSource::ReactiveFallback ? "reactive_fallback" : "safety_timing");
+    }
     return out.str();
 }
 }

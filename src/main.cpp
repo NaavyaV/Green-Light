@@ -28,8 +28,9 @@ int main(int argc, char** argv) {
             const std::string value(argv[arg++]);
             if (option == "--controller") {
                 if (value == "reactive") config.controller = greenlight::ControllerMode::Reactive;
+                else if (value == "predictive") config.controller = greenlight::ControllerMode::Predictive;
                 else if (value == "fixed") config.controller = greenlight::ControllerMode::Fixed;
-                else throw std::invalid_argument("controller must be fixed or reactive");
+                else throw std::invalid_argument("controller must be fixed, reactive, or predictive");
             } else if (option == "--ml-impute-speed") {
                 config.imputed_speed_model = value;
             } else {

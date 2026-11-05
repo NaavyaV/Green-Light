@@ -36,6 +36,7 @@ struct MovementState {
     std::uint64_t queued_vehicle_seconds = 0, departed_wait_seconds = 0;
     std::uint64_t oldest_wait_seconds = 0;
 };
+enum class DecisionSource { SafetyTiming, ReactiveFallback, Forecast };
 struct TrafficState {
     std::uint64_t time_seconds = 0;
     std::array<MovementState, movement_count> movements{};
@@ -43,11 +44,12 @@ struct TrafficState {
     SignalStage stage = SignalStage::Green;
     unsigned signal_elapsed = 0;
     std::optional<Prediction> prediction;
+    std::optional<DecisionSource> predictive_decision;
     std::uint64_t throughput() const;
     std::uint64_t total_queue() const;
     double mean_departed_wait() const;
 };
-enum class ControllerMode { Fixed, Reactive };
+enum class ControllerMode { Fixed, Reactive, Predictive };
 struct SimulationConfig {
     ControllerMode controller = ControllerMode::Fixed;
     std::uint32_t seed = 42;
@@ -79,7 +81,8 @@ private:
 class ReactiveController {
 public:
     explicit ReactiveController(SignalPlan plan);
-    void advance(const std::array<MovementState, movement_count>& movements);
+    DecisionSource advance(const std::array<MovementState, movement_count>& movements,
+                           const Prediction* forecast = nullptr);
     SignalPhase phase() const { return phase_; }
     SignalStage stage() const { return stage_; }
     unsigned elapsed() const { return elapsed_; }

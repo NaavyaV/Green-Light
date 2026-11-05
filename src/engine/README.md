@@ -23,7 +23,7 @@ Four protected phase groups cycle: NS left; NS through/right; EW left; EW
 through/right. Default greens are 10/20/10/20 seconds, bounded by 5–40 seconds.
 Every green ends with 3 seconds of yellow and 2 seconds of all-red. No departures
 occur during clearance. Right-on-red, pedestrians, shared-lane constraints, travel
-speeds, vehicle positions, reactive control and predictive control are not modeled.
+speeds and vehicle positions are outside the queue model.
 Different phase groups are conservatively considered conflicting; no greens from
 different groups are shown simultaneously.
 
@@ -39,7 +39,7 @@ arrivals/departures for the last second, and their cumulative totals. No statist
 claim real-world validation. This is an abstract queue simulation, separate from React.
 
 `TrafficState::prediction` is populated in the optional forecast mode described
-below. Signal decisions remain independent of forecasts.
+below. Only predictive mode uses forecasts for signal decisions.
 
 ## Reactive mode
 
@@ -103,7 +103,7 @@ arrivals between modes over 5,000 seconds.
 
 ### Bounded policy comparison (300 seconds, default demand and timing)
 
-Build and run `controller_benchmark` to reproduce the fixed/new-reactive rows.
+Run the three-controller benchmark below to reproduce the fixed/reactive rows.
 Historical greedy rows were reproduced from commit `7e9db92` with the same seeds.
 Every mode receives identical per-second movement arrivals for each seed.
 
@@ -141,8 +141,8 @@ waiting-aware selection, replay, conservation, and all safety transitions.
 
 The opt-in flag loads the frozen C++ MLP and adds forecast lines at simulated
 seconds 60, 65, 70, and so on. Each forecast covers the following 30 seconds
-and is retained in `TrafficState::prediction` until the next forecast. The
-controller does not consume it. The original CLI output is unchanged by default.
+and is retained in `TrafficState::prediction` until the next forecast. Fixed and reactive modes
+leave the forecast out of their decisions. The original CLI output is unchanged by default.
 
 At time `t`, the four windows count simulator arrivals in `[t-width,t)` in
 vehicles, grouped by the exported movement order. Each movement's fifth
@@ -157,3 +157,59 @@ Simulator arrivals count entry events only, so the input distributions can diffe
 This mode demonstrates runtime inference, not validated forecast quality.
 A deployment needs compatible speed observations and evaluation on the intended
 traffic stream, or a separately trained and validated model without speed.
+
+
+## Predictive mode
+
+From the repository root, build and run:
+
+```sh
+cmake -S . -B /tmp/green-light-build
+cmake --build /tmp/green-light-build
+ctest --test-dir /tmp/green-light-build --output-on-failure
+/tmp/green-light-build/green_light 300 42 --controller predictive --ml-impute-speed ml_handoff/model_weights.txt
+/tmp/green-light-build/green_light 300 42 --controller predictive
+/tmp/green-light-build/controller_benchmark ml_handoff/model_weights.txt
+```
+
+The first predictive command opts into inference with imputed training-mean
+speed. The second runs reactive fallback because the queue simulator supplies
+no speed observations and no model is configured. Warm-up also uses fallback.
+An explicitly configured model that fails to load remains a startup error.
+
+The existing protected phase masks define the candidate movements:
+
+| Phase | Movements |
+|---|---|
+| NS_LEFT | N_LEFT, S_LEFT |
+| NS_THROUGH_RIGHT | N_THROUGH, N_RIGHT, S_THROUGH, S_RIGHT |
+| EW_LEFT | E_LEFT, W_LEFT |
+| EW_THROUGH_RIGHT | E_THROUGH, E_RIGHT, W_THROUGH, W_RIGHT |
+
+For each phase, sum its movement queues and add the oldest FIFO wait in seconds
+divided by five. Predictive mode also adds one-third of the sum of the phase's
+predicted 30-second arrivals. That term estimates arrivals in ten seconds
+under a uniform arrival assumption and is expressed in vehicles. After the
+nominal green batch, an alternative's score must exceed the current phase's
+score with its queue term multiplied by 1.5. The reactive rules still govern
+empty-queue release, minimum and maximum green, cyclic tie-breaking, and
+clearance. Overdue queued phases take priority using the existing service-gap
+counters and queue-based tie-breaking. Forecast updates cannot change the next
+phase once yellow starts.
+
+Status lines describe the signal interval just served. In predictive mode the
+`decision` label describes the subsequent controller update. It reads
+`predictive_imputed_speed` when ranking uses the model, `reactive_fallback`
+when ranking uses queues and waits alone, and `safety_timing` when clearance,
+minimum green, or overdue priority governs the update. Forecasts first become
+available at second 60 and refresh every five seconds.
+
+The benchmark uses 300 seconds of identical seeded arrivals per controller.
+Its fairness column measures the longest observed consecutive interval with a
+nonempty movement queue and no green, including yellow and all-red. It is a
+finite-run phase access measure. Individual vehicles may wait longer. For seeds
+42, 7, and 123, predictive changed departures versus reactive by −5, +14, and +2,
+and changed queued vehicle-seconds by +171, −69, and −18. The fairness measure
+matched reactive on all three seeds. These runs exercise the controller with
+imputed speed and synthetic arrivals. Accuracy with observed speeds and
+performance on other traffic distributions remain unverified.
