@@ -19,6 +19,7 @@ endif()
 # Engine code shared by the program and the tests. Each stage adds its .cpp files here.
 add_library(green_light_engine STATIC
     src/sim/Intersection.cpp
+    src/sim/ArrivalGenerator.cpp
 )
 target_link_libraries(green_light_engine PUBLIC green_light_options)
 
@@ -32,3 +33,7 @@ enable_testing()
 add_executable(test_intersection tests/test_intersection.cpp)
 target_link_libraries(test_intersection PRIVATE green_light_engine)
 add_test(NAME test_intersection COMMAND test_intersection)
+
+add_executable(test_arrival_generator tests/test_arrival_generator.cpp)
+target_link_libraries(test_arrival_generator PRIVATE green_light_engine)
+add_test(NAME test_arrival_generator COMMAND test_arrival_generator)
