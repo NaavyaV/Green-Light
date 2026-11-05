@@ -118,7 +118,7 @@ green-light-engine/
 │   │   ├── SafetyRules.hpp/.cpp  # min/max green, yellow, all-red, no conflicts
 │   │   └── SignalController.hpp/.cpp  # phase state machine + timers
 │   ├── io/
-│   │   ├── ConsoleLogger.hpp/.cpp     # per-second line + signal-change lines
+│   │   ├── ConsoleLogger.hpp/.cpp     # per-second line + signal-change and rejection lines
 │   │   ├── Serializer.hpp/.cpp        # TrafficState <-> JSON (later)
 │   │   └── SocketServer.hpp/.cpp      # socket to the Python service (later)
 │   └── control/
@@ -130,14 +130,16 @@ green-light-engine/
     ├── test_arrival_generator.cpp    # Stage 3: seeding and arrival rates
     ├── test_signal_controller.cpp    # Stage 4: fixed schedule, Extend, Transition
     ├── test_safety_rules.cpp         # Stage 5: conflicting greens, min/max green, clearances
-    └── test_simulator.cpp            # Stage 6: full-run invariants
+    ├── test_simulator.cpp            # Stage 6: full-run invariants
+    └── test_console_logger.cpp       # Stage 7: exact console line formats
 ```
 
-**Console output** (built in Stage 7): one line per simulated second, plus a line for every signal change. The numbers below are illustrative; the format is exact.
+**Console output** (built in Stage 7): one line per simulated second, plus a line for every signal change and, for debugging controllers, a line for every decision SafetyRules rejects. When several lines share a second, the order is SIGNAL, then REJECTED, then TIME. The numbers below are illustrative; the format is exact.
 
 ```
 TIME 40s | EW_THROUGH | NS Queue: 14 | EW Queue: 9 | Avg Wait: 6.2s | Passed: 31
 [58s] SIGNAL: EW_THROUGH -> EW_YELLOW
+[5s] REJECTED: Transition rejected: green has run 5s, under the minimum green of 10s
 ```
 
 **Not part of Milestone 1.** Sockets, JSON, the Python service, the dashboard, `Prediction` handling and `PredictiveController`. The files for these (`Serializer`, `SocketServer`, `Prediction.hpp`, `PredictiveController`) may exist as empty stubs; leave them empty.
@@ -421,7 +423,7 @@ Give me a short plan first. Tests: run 3600 simulated seconds with no printing a
 
 **Goal:** The program prints what the Project briefing asks for, and passes the Milestone 1 definition of done.
 
-**Files:** `src/io/ConsoleLogger.hpp/.cpp`, the final `src/main.cpp`, an updated `README.md`
+**Files:** `src/io/ConsoleLogger.hpp/.cpp`, `tests/test_console_logger.cpp`, the final `src/main.cpp`, an updated `README.md`
 
 **Prompt for Claude Code**
 
@@ -431,6 +433,8 @@ Do Stage 7 only: io/ConsoleLogger.hpp/.cpp and the final main.cpp.
   NS Queue is the sum of the N_ and S_ movements, EW Queue the sum of the E_ and W_ movements, Avg Wait the average over all waiting cars, and Passed the total so far.
 - One extra line for every signal change, stamped with the second the new phase starts: [58s] SIGNAL: EW_THROUGH -> EW_YELLOW
   Use the plain ASCII arrow -> so it prints correctly on any console.
+- One extra line for every decision SafetyRules rejects: [5s] REJECTED: <reason>. Order within a second: SIGNAL, REJECTED, TIME.
+- tests/test_console_logger.cpp, registered with CTest, checks each line format exactly.
 - main validates Config through SafetyRules before starting, and refuses to run with a clear message if it is invalid.
 - main runs the simulator for a number of seconds given on the command line (default 120), with an optional seed argument.
 - Update README.md with how to build, run and test.

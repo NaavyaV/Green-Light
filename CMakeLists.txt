@@ -25,6 +25,7 @@ add_library(green_light_engine STATIC
     src/signal/SignalController.cpp
     src/signal/SafetyRules.cpp
     src/control/FixedTimingController.cpp
+    src/io/ConsoleLogger.cpp
 )
 target_link_libraries(green_light_engine PUBLIC green_light_options)
 
@@ -54,3 +55,7 @@ add_test(NAME test_safety_rules COMMAND test_safety_rules)
 add_executable(test_simulator tests/test_simulator.cpp)
 target_link_libraries(test_simulator PRIVATE green_light_engine)
 add_test(NAME test_simulator COMMAND test_simulator)
+
+add_executable(test_console_logger tests/test_console_logger.cpp)
+target_link_libraries(test_console_logger PRIVATE green_light_engine)
+add_test(NAME test_console_logger COMMAND test_console_logger)
