@@ -33,6 +33,7 @@ struct MovementState {
     std::uint64_t queue = 0, arrivals = 0, departures = 0;
     std::uint64_t total_arrivals = 0, total_departures = 0;
     std::uint64_t queued_vehicle_seconds = 0, departed_wait_seconds = 0;
+    std::uint64_t oldest_wait_seconds = 0;
 };
 struct TrafficState {
     std::uint64_t time_seconds = 0;
@@ -85,6 +86,7 @@ private:
     SignalPhase next_ = SignalPhase::NS_THROUGH_RIGHT;
     SignalStage stage_ = SignalStage::Green;
     unsigned elapsed_ = 0;
+    std::array<std::uint64_t, 4> unserved_seconds_{};
 };
 class Simulator {
 public:

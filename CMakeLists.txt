@@ -16,9 +16,12 @@ if(BUILD_TESTING)
   add_test(NAME mlp_parity COMMAND mlp_parity
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/model_weights.txt
     ${CMAKE_CURRENT_SOURCE_DIR}/ml_handoff/test_vectors.csv)
+  add_executable(controller_benchmark tests/controller_benchmark.cpp)
+  target_link_libraries(controller_benchmark PRIVATE traffic_engine)
+  add_test(NAME controller_benchmark COMMAND controller_benchmark)
   add_executable(engine_tests tests/engine_tests.cpp)
   target_link_libraries(engine_tests PRIVATE traffic_engine)
-  foreach(case conservation timing deterministic waiting safety reactive_limits reactive_simulation)
+  foreach(case conservation timing deterministic waiting safety reactive_limits reactive_simulation reactive_fairness reactive_multiseed)
     add_test(NAME engine_${case} COMMAND engine_tests ${case})
   endforeach()
 endif()

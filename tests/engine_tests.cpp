@@ -196,6 +196,57 @@ void reactive_simulation() {
     }
     expect(different,"reactive seed ignored");
 }
+void reactive_fairness() {
+    SignalPlan plan; plan.min_green=3;plan.max_green=7;plan.green_seconds.fill(5);
+    plan.yellow_seconds=2;plan.all_red_seconds=1;
+    const unsigned bound=2*(plan.max_green+plan.yellow_seconds+plan.all_red_seconds)
+                         +4*(plan.max_green+plan.yellow_seconds+plan.all_red_seconds);
+    // Persistent one-vehicle demand must receive service even against huge queues.
+    std::array<MovementState,movement_count> queues{};
+    queues[0].queue=1;queues[1].queue=100000;queues[6].queue=1;queues[7].queue=100000;
+    ReactiveController c(plan),replay(plan);
+    std::array<unsigned,4> unserved{},visits{};
+    for(unsigned t=0;t<2000;++t) {
+        expect(c.phase()==replay.phase() && c.stage()==replay.stage() && c.elapsed()==replay.elapsed(),"fairness replay");
+        for(unsigned p=0;p<4;++p) {
+            if(c.stage()==SignalStage::Green && static_cast<unsigned>(c.phase())==p){unserved[p]=0;++visits[p];}
+            else ++unserved[p];
+            expect(unserved[p]<=bound,"persistent demand exceeded bounded service gap");
+        }
+        c.advance(queues);replay.advance(queues);
+    }
+    for(auto n:visits)expect(n>0,"phase starved");
+    // A small pressure change cannot interrupt a nonempty green before its batch.
+    queues.fill({});queues[0].queue=10;queues[1].queue=11;
+    ReactiveController batch(plan);
+    for(unsigned t=0;t<plan.green_seconds[0];++t){
+        expect(batch.stage()==SignalStage::Green,"unnecessary short-green switch");batch.advance(queues);
+    }
+    // Equal queues: genuine head wait should break demand ties after the batch.
+    queues.fill({});queues[0].queue=10;queues[7].queue=10;queues[7].oldest_wait_seconds=50;
+    ReactiveController aged(plan);
+    for(unsigned t=0;t<plan.green_seconds[0];++t)aged.advance(queues);
+    expect(aged.stage()==SignalStage::Yellow,"waiting-time pressure ignored");
+    for(unsigned t=0;t<plan.yellow_seconds+plan.all_red_seconds;++t)aged.advance(queues);
+    expect(aged.phase()==SignalPhase::EW_THROUGH_RIGHT,"oldest wait did not affect selection");
+}
+void reactive_multiseed() {
+    for(unsigned seed:{42,7,123}) {
+        SimulationConfig c;c.seed=seed;c.controller=ControllerMode::Reactive;
+        Simulator reactive(c), replay(c);c.controller=ControllerMode::Fixed;Simulator fixed(c);
+        for(unsigned t=0;t<3000;++t) {
+            const auto& r=reactive.step();const auto& f=fixed.step();const auto& copy=replay.step();
+            expect(status_line(r)==status_line(copy),"multi-seed replay");
+            for(std::size_t i=0;i<movement_count;++i) {
+                const auto& m=r.movements[i];
+                expect(m.arrivals==f.movements[i].arrivals,"multi-seed stream differs");
+                expect(m.total_arrivals==m.total_departures+m.queue,"multi-seed conservation");
+                expect(m.oldest_wait_seconds==copy.movements[i].oldest_wait_seconds,"oldest-wait replay");
+                expect(m.queue || m.oldest_wait_seconds==0,"empty queue has head wait");
+            }
+        }
+    }
+}
 int main(int argc,char** argv) {
     try {
         if(argc!=2)throw std::runtime_error("expected test name");
@@ -204,7 +255,9 @@ int main(int argc,char** argv) {
         else if(name=="deterministic")deterministic();else if(name=="waiting")waiting();
         else if(name=="safety")safety();
         else if(name=="reactive_limits")reactive_limits();
-        else if(name=="reactive_simulation")reactive_simulation();else throw std::runtime_error("unknown test");
+        else if(name=="reactive_simulation")reactive_simulation();
+        else if(name=="reactive_fairness")reactive_fairness();
+        else if(name=="reactive_multiseed")reactive_multiseed();else throw std::runtime_error("unknown test");
         std::cout<<"PASS "<<name<<'\n';
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

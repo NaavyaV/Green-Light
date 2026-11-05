@@ -14,8 +14,7 @@ ctest --test-dir /tmp/green-light-cpp-build --output-on-failure
 ```
 
 See `src/engine/README.md` for timing conventions, queue statistics, and measured
-comparison results. The reactive greedy controller performs worse than fixed-time
-on the documented seed-42 run; it has no starvation guarantee. Both respect green
+comparison results. The bounded reactive controller reduces accumulated queueing across the three documented seeds. Fixed-time throughput still leads on seed 123. Both respect green
 limits and clearance intervals. Predictive control is not implemented.
 
 Sanjit's original `src/control`, `src/core`, `src/io`, `src/signal`, `src/sim`, and
@@ -26,7 +25,7 @@ is retained in `src/main.cpp`.
 
 `ml_handoff/` contains only the frozen inference header, exported 680-epoch weights,
 interface contract, and parity fixtures/test required by this C++ branch. CTest
-runs the inference parity test as well as the seven engine tests. Engine and ML
+runs the inference parity test as well as the nine engine tests and controller benchmark. Engine and ML
 remain separate: no model calls, fabricated speed observations, or predictive
 signal decisions are added. Training, exporter, dataset, evaluations and archived
 model baselines remain maintained on `ML`; those artifacts are not duplicated here.
