@@ -67,7 +67,7 @@ std::vector<PhaseChange> run(SignalController& sc, IController& controller, int 
         if (!change && isGreen(sc.phase())) {
             TrafficState traffic;
             traffic.time = now;
-            change = sc.applyDecision(controller.decide(traffic, sc.status()), now);
+            change = sc.applyDecision(controller.decide(traffic, sc.status()), now).change;
         }
         if (change) {
             changes.push_back(*change);
@@ -184,8 +184,8 @@ void testClearancesIgnoreDecisions() {
     CHECK(sc.phase() == P::NS_YELLOW);
     const SignalStatus before = sc.status();
 
-    CHECK(!sc.applyDecision(Decision::transition(P::EW_THROUGH), 20));
-    CHECK(!sc.applyDecision(Decision::extend(10), 20));
+    CHECK(!sc.applyDecision(Decision::transition(P::EW_THROUGH), 20).change);
+    CHECK(!sc.applyDecision(Decision::extend(10), 20).change);
     const SignalStatus after = sc.status();
     CHECK(after.phase == before.phase);
     CHECK(after.plannedDuration == before.plannedDuration);
@@ -195,7 +195,7 @@ void testClearancesIgnoreDecisions() {
         sc.tick(now);
     }
     CHECK(sc.phase() == P::ALL_RED);
-    CHECK(!sc.applyDecision(Decision::transition(P::EW_THROUGH), 23));
+    CHECK(!sc.applyDecision(Decision::transition(P::EW_THROUGH), 23).change);
     CHECK(sc.status().plannedDuration == Config{}.allRedSeconds);
 
     // The ignored Transition did not change the pending green: NS_LEFT follows.

@@ -22,6 +22,7 @@ add_library(green_light_engine STATIC
     src/sim/ArrivalGenerator.cpp
     src/signal/PhaseMap.cpp
     src/signal/SignalController.cpp
+    src/signal/SafetyRules.cpp
     src/control/FixedTimingController.cpp
 )
 target_link_libraries(green_light_engine PUBLIC green_light_options)
@@ -44,3 +45,7 @@ add_test(NAME test_arrival_generator COMMAND test_arrival_generator)
 add_executable(test_signal_controller tests/test_signal_controller.cpp)
 target_link_libraries(test_signal_controller PRIVATE green_light_engine)
 add_test(NAME test_signal_controller COMMAND test_signal_controller)
+
+add_executable(test_safety_rules tests/test_safety_rules.cpp)
+target_link_libraries(test_safety_rules PRIVATE green_light_engine)
+add_test(NAME test_safety_rules COMMAND test_safety_rules)

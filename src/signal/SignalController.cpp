@@ -2,7 +2,15 @@
 
 #include "signal/PhaseMap.hpp"
 
-SignalController::SignalController(const Config& config) : config_(config) {
+#include <stdexcept>
+
+SignalController::SignalController(const Config& config) : config_(config), rules_(config) {
+    // A bad Config must never run: every plan relies on these values.
+    const Verdict valid = SafetyRules::validateConfig(config);
+    if (!valid.accepted) {
+        throw std::invalid_argument(valid.reason);
+    }
+
     phase_ = SignalPhase::NS_THROUGH;
     secondsInPhase_ = 0;
     plannedDuration_ = defaultDuration(phase_);
@@ -25,26 +33,34 @@ std::optional<PhaseChange> SignalController::tick(int now) {
     return enterPhase(SignalPhase::ALL_RED, now);  // a yellow
 }
 
-std::optional<PhaseChange> SignalController::applyDecision(const Decision& decision, int now) {
-    if (!isGreen(phase_)) {
-        return std::nullopt;  // yellow and ALL_RED ignore decisions
+DecisionOutcome SignalController::applyDecision(const Decision& decision, int now) {
+    DecisionOutcome outcome;
+
+    // SafetyRules decides whether the decision is legal (including that
+    // yellow and ALL_RED take no decisions). A rejection changes nothing.
+    const Verdict verdict = rules_.reviewDecision(decision, status());
+    if (!verdict.accepted) {
+        outcome.accepted = false;
+        outcome.reason = verdict.reason;
+        return outcome;
     }
 
     switch (decision.type) {
         case DecisionType::Hold:
-            return std::nullopt;
+            break;
         case DecisionType::Extend:
             plannedDuration_ += decision.extendSeconds;
-            return std::nullopt;
+            break;
         case DecisionType::Transition:
             // The named next green applies to this one change only; once it
             // starts, enterPhase resets the pending green to its default successor.
             if (decision.nextGreen) {
                 pendingNextGreen_ = *decision.nextGreen;
             }
-            return enterPhase(yellowFor(phase_), now);
+            outcome.change = enterPhase(yellowFor(phase_), now);
+            break;
     }
-    return std::nullopt;
+    return outcome;
 }
 
 SignalStatus SignalController::status() const {
@@ -61,6 +77,9 @@ std::array<bool, kMovementCount> SignalController::greenMovements() const {
 }
 
 PhaseChange SignalController::enterPhase(SignalPhase next, int now) {
+    // Every phase change, automatic or from a Transition, passes through here.
+    rules_.requireLegalPhaseChange(phase_, next, secondsInPhase_);
+
     const PhaseChange change{now, phase_, next};
     phase_ = next;
     secondsInPhase_ = 0;
