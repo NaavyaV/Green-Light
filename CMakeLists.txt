@@ -20,6 +20,9 @@ endif()
 add_library(green_light_engine STATIC
     src/sim/Intersection.cpp
     src/sim/ArrivalGenerator.cpp
+    src/signal/PhaseMap.cpp
+    src/signal/SignalController.cpp
+    src/control/FixedTimingController.cpp
 )
 target_link_libraries(green_light_engine PUBLIC green_light_options)
 
@@ -37,3 +40,7 @@ add_test(NAME test_intersection COMMAND test_intersection)
 add_executable(test_arrival_generator tests/test_arrival_generator.cpp)
 target_link_libraries(test_arrival_generator PRIVATE green_light_engine)
 add_test(NAME test_arrival_generator COMMAND test_arrival_generator)
+
+add_executable(test_signal_controller tests/test_signal_controller.cpp)
+target_link_libraries(test_signal_controller PRIVATE green_light_engine)
+add_test(NAME test_signal_controller COMMAND test_signal_controller)
