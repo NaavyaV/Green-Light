@@ -38,3 +38,8 @@ The engine supports versioned JSON Lines output for replay in a frontend
 scratch copy. See the [snapshot schema and React adapter example](src/engine/README.md#json-lines-snapshots-and-frontend-handoff)
 for build commands, forecast metadata, and the dashboard fields that require
 adaptation.
+
+## Dashboard
+
+The React + Vite dashboard lives in `frontend/`. See [frontend/README.md](frontend/README.md)
+for how to run it and what each panel shows.
