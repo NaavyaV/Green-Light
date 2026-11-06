@@ -1,17 +1,22 @@
 import { useState } from 'react';
 import { INTERSECTIONS } from './sim/constants.js';
+import { DATA_SOURCE } from './config.js';
 import { useSimulation } from './hooks/useSimulation.js';
+import { useEngineFeed } from './hooks/useEngineFeed.js';
 import { useTheme } from './hooks/useTheme.js';
 import Header from './components/Header.jsx';
 import KpiStrip from './components/KpiStrip.jsx';
 import IntersectionPanel from './components/IntersectionPanel.jsx';
 import SidePanel from './components/SidePanel.jsx';
 
+// DATA_SOURCE is a constant, so the same hook runs on every render (as React requires).
+const useDataSource = DATA_SOURCE === 'engine' ? useEngineFeed : useSimulation;
+
 export default function App() {
   const [isect, setIsect] = useState(0);
   const [scenario, setScenario] = useState(INTERSECTIONS[0].scenario);
   const [selected, setSelected] = useState(null);
-  const { sim, view, running, speed, actions, onFrame } = useSimulation(scenario);
+  const { sim, view, running, speed, actions, onFrame } = useDataSource(scenario);
   const theme = useTheme();
 
   const changeIntersection = (i) => {

@@ -362,4 +362,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  // Started by another program (frontend/scripts/dev-live.mjs) with a pipe on
+  // stdin: that pipe closes when the parent dies, however it dies, so the
+  // bridge (and with it the engine) never outlives it.
+  if (process.env.GL_EXIT_WITH_PARENT === '1') {
+    process.stdin.on('end', shutdown);
+    process.stdin.on('close', shutdown);
+    process.stdin.resume();
+  }
 }

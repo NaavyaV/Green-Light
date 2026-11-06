@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:live": "node scripts/dev-live.mjs",
+    "test": "node --test src/engine/feed.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
