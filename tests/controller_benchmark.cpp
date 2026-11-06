@@ -5,8 +5,8 @@
 
 int main(int argc, char** argv) {
     using namespace greenlight;
-    if (argc != 2) {
-        std::cerr << "Usage: controller_benchmark <model_weights.txt>\n";
+    if (argc < 2 || argc > 3) {
+        std::cerr << "Usage: controller_benchmark <model_weights.txt> [normal|overloaded]\n";
         return 1;
     }
     try {
@@ -15,6 +15,7 @@ int main(int argc, char** argv) {
         for (unsigned seed : {42, 7, 123}) {
             SimulationConfig config;
             config.seed = seed;
+            if (argc == 3) config.set_demand_preset(argv[2]);
             Simulator fixed(config);
             config.controller = ControllerMode::Reactive;
             Simulator reactive(config);

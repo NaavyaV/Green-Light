@@ -10,8 +10,16 @@ std::string snapshot_json(const TrafficState& state, ControllerMode mode) {
     // All string values come from internal enum labels or movement constants.
     constexpr std::array<const char*, 4> phases{
         "NS_LEFT", "NS_THROUGH_RIGHT", "EW_LEFT", "EW_THROUGH_RIGHT"};
-    const char* light = state.stage == SignalStage::Green ? "green"
-        : state.stage == SignalStage::Yellow ? "yellow" : "all_red";
+    const auto light = [](SignalStage stage) {
+        return stage == SignalStage::Green ? "green" : stage == SignalStage::Yellow ? "yellow" : "all_red";
+    };
+    const char* model_status = "disabled";
+    switch (state.model_status) {
+        case ModelStatus::Disabled: break;
+        case ModelStatus::WarmingUp: model_status = "warming_up"; break;
+        case ModelStatus::Ready: model_status = "ready"; break;
+        case ModelStatus::InvalidOutput: model_status = "invalid_output"; break;
+    }
     const char* controller = mode == ControllerMode::Fixed ? "fixed"
         : mode == ControllerMode::Reactive ? "reactive" : "predictive";
 
@@ -20,16 +28,37 @@ std::string snapshot_json(const TrafficState& state, ControllerMode mode) {
     out << std::setprecision(std::numeric_limits<double>::max_digits10)
         << "{\"schema_version\":1,\"time_seconds\":" << state.time_seconds
         << ",\"phase\":\"" << phases[static_cast<std::size_t>(state.phase)]
-        << "\",\"light_state\":\"" << light
+        << "\",\"light_state\":\"" << light(state.stage)
         << "\",\"phase_elapsed_seconds\":" << state.signal_elapsed
         << ",\"controller_mode\":\"" << controller << "\",\"decision_source\":";
-    if (state.predictive_decision) {
+    const auto write_source = [&] {
+        if (!state.predictive_decision) {
+            out << "null";
+            return;
+        }
         const auto source = *state.predictive_decision;
         out << '"' << (source == DecisionSource::Forecast ? "predictive_imputed_speed"
             : source == DecisionSource::ReactiveFallback ? "reactive_fallback" : "safety_timing") << '"';
-    } else {
-        out << "null";
+    };
+    write_source();
+    const bool green = state.stage == SignalStage::Green;
+    const bool hold = green && state.next_stage == SignalStage::Green;
+    out << ",\"model_status\":\"" << model_status << "\",\"decision\":{\"source\":";
+    write_source();
+    out << ",\"action\":\"" << (hold ? "hold" : green ? "switch" : "clearance")
+        << "\",\"text\":\"" << (hold ? "Hold green for the next second" :
+            green ? "End green and start yellow" : "Advance clearance timing")
+        << "\",\"next_phase\":\"" << phases[static_cast<std::size_t>(state.next_phase)]
+        << "\",\"next_light_state\":\"" << light(state.next_stage)
+        << "\",\"recommendation\":null,\"agrees_with_model\":null}"
+        << ",\"seconds_left\":null,\"schedule\":null,\"queue_forecast\":null"
+        << ",\"vehicles\":null,\"forecast_error\":null,\"lights\":{";
+    const auto active = green_movements(state.phase, SignalStage::Green);
+    for (std::size_t i = 0; i < movement_count; ++i) {
+        const auto* color = !active[i] || state.stage == SignalStage::AllRed ? "red" : light(state.stage);
+        out << (i ? "," : "") << '"' << movement_names[i] << "\":\"" << color << '"';
     }
+    out << '}';
 
     out << ",\"movement_order\":[";
     for (std::size_t i = 0; i < movement_count; ++i)

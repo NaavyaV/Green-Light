@@ -294,3 +294,38 @@ recommendations are outside this snapshot contract. For a later live feed,
 the smallest bridge would stream a single engine process's stdout as HTTP
 JSONL and forward stderr separately. Static replay uses the existing Vite
 dev server and needs no such bridge.
+
+### Demand presets for replay and comparisons
+
+Use `--demand normal` for a dashboard recording with headroom. In left,
+through, right order, each approach has arrival probabilities
+`0.08, 0.20, 0.10` per simulated second. The fixed plan can serve each
+movement at average rates `0.125, 0.25, 0.25` vehicles per second. With
+parallel service within each phase, the balanced rates need at least 56%
+green time in aggregate. The fixed plan supplies 75%.
+
+Use `--demand overloaded` for a stress case. It is also the historical default
+for reproducibility. The original spellings `balanced` and `overload` remain aliases. Its rates `0.15, 0.35, 0.10` require 100% green before
+clearance, so changing signal timing alone cannot stabilize demand.
+
+```sh
+/tmp/green-light-build/green_light 300 42 --controller predictive --demand normal \
+  --ml-impute-speed ml_handoff/model_weights.txt --format jsonl > /tmp/green-light-replay.jsonl
+/tmp/green-light-build/controller_benchmark ml_handoff/model_weights.txt normal
+/tmp/green-light-build/controller_benchmark ml_handoff/model_weights.txt overloaded
+```
+
+The speed fields still use explicit training-mean imputation. If runtime
+inference returns a nonfinite count, the engine clears the forecast and
+uses reactive fallback at the next eligible decision. The next scheduled
+inference can restore forecasts. An invalid model file remains a startup error.
+
+For the replay panels, display real queues, lights, completed-vehicle metrics,
+and the 12 forecast arrival totals. A visual cap on rendered cars should retain
+the full count in a label. Consecutive snapshots can show an observed switch
+or clearance transition. A 30-second arrival total does not determine a
+future queue curve, and the engine's current decision source does not provide
+confidence, agreement with a recommendation, or a future signal schedule.
+
+See the [snapshot agreement draft](../../docs/SNAPSHOT.md) for model status,
+lights, and actual controller actions.

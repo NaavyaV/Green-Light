@@ -32,6 +32,8 @@ int main(int argc, char** argv) {
                 else if (value == "predictive") config.controller = greenlight::ControllerMode::Predictive;
                 else if (value == "fixed") config.controller = greenlight::ControllerMode::Fixed;
                 else throw std::invalid_argument("controller must be fixed, reactive, or predictive");
+            } else if (option == "--demand") {
+                config.set_demand_preset(value);
             } else if (option == "--format") {
                 if (value != "text" && value != "jsonl")
                     throw std::invalid_argument("format must be text or jsonl");

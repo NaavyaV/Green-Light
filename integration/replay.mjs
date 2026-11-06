@@ -37,6 +37,8 @@ export function toReplayView(snapshot) {
     departures: byMovement(snapshot.departures),
     controllerMode: snapshot.controller_mode,
     decisionSource: snapshot.decision_source,
+    modelStatus: snapshot.model_status,
+    decision: snapshot.decision,
     forecast: snapshot.forecast && {
       generatedAt: snapshot.forecast.generated_at_seconds,
       horizonSeconds: snapshot.forecast.horizon_seconds,

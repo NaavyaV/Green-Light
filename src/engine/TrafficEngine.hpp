@@ -37,6 +37,7 @@ struct MovementState {
     std::uint64_t oldest_wait_seconds = 0;
 };
 enum class DecisionSource { SafetyTiming, ReactiveFallback, Forecast };
+enum class ModelStatus { Disabled, WarmingUp, Ready, InvalidOutput };
 struct TrafficState {
     std::uint64_t time_seconds = 0;
     std::array<MovementState, movement_count> movements{};
@@ -44,6 +45,9 @@ struct TrafficState {
     SignalStage stage = SignalStage::Green;
     unsigned signal_elapsed = 0;
     std::optional<Prediction> prediction;
+    ModelStatus model_status = ModelStatus::Disabled;
+    SignalPhase next_phase = SignalPhase::NS_LEFT;
+    SignalStage next_stage = SignalStage::Green;
     std::optional<DecisionSource> predictive_decision;
     std::uint64_t throughput() const;
     std::uint64_t total_queue() const;
@@ -60,6 +64,7 @@ struct SimulationConfig {
     SignalPlan signals;
     // Opt in to forecasting with training-mean speed imputation.
     std::optional<std::string> imputed_speed_model;
+    void set_demand_preset(const std::string& preset);
     void validate() const;
 };
 std::array<bool, movement_count> green_movements(SignalPhase phase, SignalStage stage);

@@ -23,6 +23,17 @@ void SignalPlan::validate() const {
     for (auto duration : green_seconds)
         check(duration >= min_green && duration <= max_green, "green duration outside safety limits");
 }
+void SimulationConfig::set_demand_preset(const std::string& preset) {
+    if (preset == "overloaded" || preset == "overload") {
+        arrival_probability = SimulationConfig{}.arrival_probability;
+    } else if (preset == "normal" || preset == "balanced") {
+        arrival_probability = {.08, .20, .10, .08, .20, .10,
+                               .08, .20, .10, .08, .20, .10};
+    } else {
+        throw std::invalid_argument("demand must be normal or overloaded");
+    }
+}
+
 void SimulationConfig::validate() const {
     signals.validate();
     check(controller == ControllerMode::Fixed || controller == ControllerMode::Reactive ||
@@ -152,6 +163,7 @@ Simulator::Simulator(SimulationConfig config)
     }
     model_.emplace();
     model_->load(path);
+    state_.model_status = ModelStatus::WarmingUp;
     for (const auto* scales : {&model_->scale, &model_->target_scale})
         for (double scale : *scales)
             if (!std::isfinite(scale) || scale <= 0)
@@ -206,15 +218,20 @@ const TrafficState& Simulator::step() {
     ++state_.time_seconds;
     if (state_.time_seconds % 5 == 0) {
         if (const auto features = forecast_features()) {
-            const auto counts = model_->forward_raw({features->begin(), features->end()});
-            Prediction prediction;
-            prediction.generated_at = state_.time_seconds;
-            for (std::size_t i = 0; i < movement_count; ++i) {
-                if (!std::isfinite(counts[i]))
-                    throw std::runtime_error("MLP returned a non-finite prediction");
-                prediction.arrivals[i] = std::max(0.0, counts[i]);
+            const auto finite = [](double value) { return std::isfinite(value); };
+            state_.prediction.reset();
+            state_.model_status = ModelStatus::InvalidOutput;
+            if (std::all_of(features->begin(), features->end(), finite)) {
+                const auto counts = model_->forward_raw({features->begin(), features->end()});
+                if (std::all_of(counts.begin(), counts.end(), finite)) {
+                    Prediction prediction;
+                    prediction.generated_at = state_.time_seconds;
+                    for (std::size_t i = 0; i < movement_count; ++i)
+                        prediction.arrivals[i] = std::max(0.0, counts[i]);
+                    state_.prediction = prediction;
+                    state_.model_status = ModelStatus::Ready;
+                }
             }
-            state_.prediction = prediction;
         }
     }
     if (reactive) {
@@ -224,6 +241,8 @@ const TrafficState& Simulator::step() {
     } else {
         controller_.advance();
     }
+    state_.next_phase = reactive ? reactive_.phase() : controller_.phase();
+    state_.next_stage = reactive ? reactive_.stage() : controller_.stage();
     return state_;
 }
 std::string status_line(const TrafficState& s) {

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseReplay, toReplayView } from '../integration/replay.mjs';
 
@@ -35,6 +38,18 @@ for (const [mode, model] of [
     const t = i + 1;
     assert.equal(row.time_seconds, t);
     assert.equal(row.controller_mode, mode);
+    assert.equal(row.model_status, !model ? 'disabled' : t < 60 ? 'warming_up' : 'ready');
+    assert.deepEqual(Object.keys(row.lights), order);
+    assert(Object.values(row.lights).every(color => ['red', row.light_state].includes(color)));
+    assert.equal(row.decision.source, row.decision_source);
+    assert.equal(row.decision.agrees_with_model, null);
+    assert.equal(row.schedule, null);
+    assert.equal(row.decision.action, row.light_state !== 'green' ? 'clearance'
+      : row.decision.next_light_state === 'green' ? 'hold' : 'switch');
+    if (rows[i + 1]) {
+      assert.equal(row.decision.next_phase, rows[i + 1].phase);
+      assert.equal(row.decision.next_light_state, rows[i + 1].light_state);
+    }
     assert.deepEqual(row.movement_order, order);
     for (const field of ['queues', 'arrivals', 'departures']) {
       assert.equal(row[field].length, 12);
@@ -86,3 +101,30 @@ assert.equal(invalid.status, 1);
 assert.equal(invalid.stdout, '');
 assert.match(invalid.stderr, /format must be text or jsonl/);
 assert.throws(() => parseReplay('{"schema_version":2}'), /Unsupported/);
+
+// The old preset remains reproducible and balanced lowers arrivals on the same stream.
+const balanced = parseReplay(run(['120', '42', '--demand', 'normal', '--format', 'jsonl']));
+const overload = run(['120', '42', '--demand', 'overloaded', '--format', 'jsonl']);
+assert.equal(overload, run(['120', '42', '--format', 'jsonl']));
+const arrivals = rows => rows.flatMap(row => row.arrivals).reduce((a, b) => a + b, 0);
+assert(arrivals(balanced) < arrivals(parseReplay(overload)));
+
+// A loadable model whose output scaling overflows must keep the simulator running.
+const scratch = mkdtempSync(join(tmpdir(), 'green-light-forecast-'));
+try {
+  const path = join(scratch, 'overflow.txt');
+  const tokens = readFileSync(weights, 'utf8').trim().split(/\s+/);
+  tokens[6 + 60 + 60 + 12] = '1e-10'; // First target scale.
+  tokens[tokens.length - 12] = '1e308'; // First output bias.
+  writeFileSync(path, tokens.join(' '));
+  const fallback = parseReplay(run(['120', '42', '--controller', 'predictive',
+    '--format', 'jsonl']));
+  const failed = parseReplay(run(['120', '42', '--controller', 'predictive',
+    '--ml-impute-speed', path, '--format', 'jsonl']));
+  failed.forEach((row, i) => {
+    assert.equal(row.model_status, i < 59 ? 'warming_up' : 'invalid_output');
+    assert.deepEqual({ ...row, model_status: 'disabled' }, fallback[i]);
+  });
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}
