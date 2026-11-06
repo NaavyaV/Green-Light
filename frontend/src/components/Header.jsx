@@ -1,10 +1,19 @@
 import { INTERSECTIONS, SCENARIOS, FORECAST_EVERY } from '../sim/constants.js';
+import { ENGINE_DEMANDS } from '../config.js';
 import { fmtClock } from '../lib/format.js';
 
 const RING = 56.5; // circumference of the countdown ring
+const LIVE_TAG = {
+  live: ['LIVE · C++ ENGINE', 'live'],
+  paused: ['PAUSED · C++ ENGINE', 'paused'],
+  offline: ['ENGINE OFFLINE', 'offline'],
+  connecting: ['CONNECTING', 'paused'],
+};
 
-export default function Header({ view, intersection, onIntersection, scenario, onScenario, speed, onSpeed, running, onToggleRun }) {
+export default function Header({ view, intersection, onIntersection, scenario, onScenario, speed, onSpeed, running, onToggleRun, connection, onDemand }) {
   const offset = RING * (1 - view.nextForecastIn / FORECAST_EVERY);
+  const engine = view.engine; // only set when the data comes from the C++ engine
+  const [tagText, tagCls] = engine ? LIVE_TAG[connection.status] : ['SIMULATED', ''];
   return (
     <header className="top">
       <div className="brand">
@@ -23,9 +32,17 @@ export default function Header({ view, intersection, onIntersection, scenario, o
         </label>
         <label className="field">
           <span className="label">Demand</span>
-          <select id="scen" aria-label="Demand scenario" value={scenario} onChange={(e) => onScenario(e.target.value)}>
-            {Object.entries(SCENARIOS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
-          </select>
+          {engine ? (
+            // The engine's demand presets; changing one restarts the engine.
+            <select id="scen" aria-label="Engine demand" value={engine.bridge.settings?.demand ?? 'normal'}
+              onChange={(e) => onDemand(e.target.value)}>
+              {Object.entries(ENGINE_DEMANDS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          ) : (
+            <select id="scen" aria-label="Demand scenario" value={scenario} onChange={(e) => onScenario(e.target.value)}>
+              {Object.entries(SCENARIOS).map(([k, s]) => <option key={k} value={k}>{s.label}</option>)}
+            </select>
+          )}
         </label>
         <div className="seg" role="group" aria-label="Simulation speed">
           {[1, 2, 4].map((v) => (
@@ -42,7 +59,7 @@ export default function Header({ view, intersection, onIntersection, scenario, o
               strokeDasharray={RING} strokeDashoffset={offset.toFixed(1)} transform="rotate(-90 11 11)" />
           </svg>
           <b>{fmtClock(view.T)}</b>
-          <span className="sim-tag">SIMULATED</span>
+          <span className={`sim-tag ${tagCls}`}>{tagText}</span>
         </div>
       </div>
     </header>

@@ -5,7 +5,7 @@ import { ROUTES } from './geometry.js';
 import { predict } from './mlModel.js';
 import { decide } from './controller.js';
 
-const CAR_COLORS = ['#cdd2d4', '#8f9ba3', '#5d6d79', '#b7bdc1', '#e4e0d6', '#6e8075', '#9b8e81', '#46525a', '#a9b4bd', '#d8cfc0'];
+export const CAR_COLORS = ['#cdd2d4', '#8f9ba3', '#5d6d79', '#b7bdc1', '#e4e0d6', '#6e8075', '#9b8e81', '#46525a', '#a9b4bd', '#d8cfc0'];
 const HISTORY_LEN = 90; // samples kept for sparklines (one every 2s = 3 minutes)
 
 /**

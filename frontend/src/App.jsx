@@ -8,6 +8,7 @@ import Header from './components/Header.jsx';
 import KpiStrip from './components/KpiStrip.jsx';
 import IntersectionPanel from './components/IntersectionPanel.jsx';
 import SidePanel from './components/SidePanel.jsx';
+import { EngineBanner, EngineStatusScreen } from './components/EngineStatus.jsx';
 
 // DATA_SOURCE is a constant, so the same hook runs on every render (as React requires).
 const useDataSource = DATA_SOURCE === 'engine' ? useEngineFeed : useSimulation;
@@ -16,8 +17,11 @@ export default function App() {
   const [isect, setIsect] = useState(0);
   const [scenario, setScenario] = useState(INTERSECTIONS[0].scenario);
   const [selected, setSelected] = useState(null);
-  const { sim, view, running, speed, actions, onFrame } = useDataSource(scenario);
+  const { sim, view, running, speed, actions, onFrame, connection } = useDataSource(scenario);
   const theme = useTheme();
+
+  // Engine mode has no data until the first simulated second arrives.
+  if (!view) return <EngineStatusScreen connection={connection} onRestart={() => actions.restart()} />;
 
   const changeIntersection = (i) => {
     setIsect(i);
@@ -38,7 +42,10 @@ export default function App() {
         onSpeed={actions.setSpeed}
         running={running}
         onToggleRun={() => actions.setRunning((r) => !r)}
+        connection={connection}
+        onDemand={(demand) => actions.restart({ demand })}
       />
+      {connection && <EngineBanner connection={connection} onRestart={() => actions.restart()} />}
       <div className="shell">
         <div className="left">
           <KpiStrip view={view} />

@@ -11,8 +11,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseReplay } from '../../../integration/replay.mjs';
-import { PHASES } from '../sim/constants.js';
-import { EngineSim } from './EngineSim.js';
+import { PHASES, STOP } from '../sim/constants.js';
+import { EngineSim, LANE_SLOTS } from './EngineSim.js';
 import { applyHello, applySnapshot, applyStatus, buildView, createFeedState } from './feed.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -256,5 +256,96 @@ test('lamps and the canvas sim show each movement light from the engine', () => 
     }
   }
   assert.deepEqual([...colors].sort(), ['green', 'red', 'yellow']);
-  assert.deepEqual(sim.allCars(), []);
+});
+
+// ----- EngineSim: cars drawn from the engine's counts --------------------------
+
+function laneCounts(sim) {
+  const per = {};
+  for (const lane of Object.values(sim.lanes)) for (const c of lane) per[c.mv] = (per[c.mv] ?? 0) + 1;
+  return per;
+}
+
+test('the canvas always holds exactly the engine queue, movement by movement', () => {
+  const sim = new EngineSim();
+  const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+  let clock = 0;
+  for (const raw of RUN) {
+    applySnapshot(state, raw);
+    sim.update(state.frames.at(-1).view);
+    sim.allCars((clock += 1000)); // animate a second between snapshots
+    const queues = byEntry(raw, 'queues');
+    const per = laneCounts(sim);
+    for (const [mv, q] of Object.entries(queues)) assert.equal(per[mv] ?? 0, q, `${mv} at ${raw.time_seconds}`);
+    assert.equal(sim.queuedCount(), raw.queues.reduce((s, q) => s + q, 0));
+  }
+});
+
+test('cars that depart drive off and disappear; queued cars stop behind the line', () => {
+  const sim = new EngineSim();
+  const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+  let sawDeparting = false;
+  let clock = 0;
+  for (const raw of RUN.slice(0, 120)) {
+    applySnapshot(state, raw);
+    sim.update(state.frames.at(-1).view);
+    for (let f = 0; f < 10; f++) sim.allCars((clock += 100));
+    if (sim.departing.length) sawDeparting = true;
+    for (const c of sim.departing) assert.equal(c.crossed, true);
+    for (const lane of Object.values(sim.lanes)) {
+      for (const c of lane) assert.ok(c.s <= STOP, `queued car past the stop line (s=${c.s})`);
+    }
+  }
+  assert.ok(sawDeparting, 'no departing cars were animated');
+  // With no new snapshots, every departing car eventually leaves the screen.
+  for (let f = 0; f < 200; f++) sim.allCars((clock += 100));
+  assert.equal(sim.departing.length, 0);
+});
+
+test('long queues show at most 10 cars per lane plus a "+N" label for the rest', () => {
+  const r = spawnSync(ENGINE, ['900', '42', '--controller', 'fixed', '--demand', 'overloaded', '--format', 'jsonl'],
+    { encoding: 'utf8', maxBuffer: 1 << 28 });
+  assert.equal(r.status, 0, r.stderr);
+  const overloaded = parseReplay(r.stdout);
+  let overflowed = false;
+  for (const frames of [RUN, overloaded]) {
+    const sim = new EngineSim();
+    const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+    for (const raw of frames) {
+      applySnapshot(state, raw);
+      sim.update(state.frames.at(-1).view);
+    }
+    if (sim.laneLabels().length) overflowed = true;
+    const drawn = sim.allCars(0).filter((c) => !c.crossed);
+    const perLane = {};
+    for (const c of drawn) {
+      const lane = c.mv[0] + (c.mv[1] === 'L' ? 'L' : 'T');
+      perLane[lane] = (perLane[lane] ?? 0) + 1;
+    }
+    for (const [lane, cars] of Object.entries(sim.lanes)) {
+      const label = sim.laneLabels().find((l) => l.lane === lane);
+      if (cars.length > LANE_SLOTS) {
+        assert.equal(perLane[lane], LANE_SLOTS - 1);
+        assert.equal(label.hidden, cars.length - (LANE_SLOTS - 1)); // drawn + label = full count
+      } else {
+        assert.equal(perLane[lane] ?? 0, cars.length);
+        assert.equal(label, undefined);
+      }
+    }
+  }
+  assert.ok(overflowed, 'expected overflowing lanes under overloaded demand');
+});
+
+test('a restart or a gap rebuilds the lanes from the counts, with cars already in place', () => {
+  const sim = new EngineSim();
+  const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+  for (const raw of RUN.slice(0, 200)) { applySnapshot(state, raw); sim.update(state.frames.at(-1).view); }
+  // Jump back to second 50 (as after a restart): rebuild, no departing cars.
+  const back = applyHello(createFeedState(), { ...BRIDGE, history: RUN.slice(0, 50) });
+  sim.update(back.frames.at(-1).view);
+  assert.equal(sim.departing.length, 0);
+  assert.equal(sim.queuedCount(), RUN[49].queues.reduce((s, q) => s + q, 0));
+  for (const lane of Object.values(sim.lanes)) {
+    lane.forEach((c, i) => assert.equal(c.s, Math.max(0, STOP - 2 - i * 24)));
+  }
 });

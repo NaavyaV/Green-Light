@@ -124,8 +124,23 @@ export function drawIntersection(ctx, canvasPx, { sim, theme, selected, intersec
     const inPreview = preview && preview.includes(c.mv);
     drawCar(ctx, theme, c, sim.T, preview && !inPreview && !c.crossed, inPreview && !c.crossed);
   }
+  if (sim.laneLabels) drawLaneLabels(ctx, theme, sim.laneLabels());
   drawSignals(ctx, theme, sim);
   drawLabels(ctx, theme, intersection);
+}
+
+/** "+N" chips for lanes with more queued cars than fit on screen (engine data only). */
+function drawLaneLabels(g, th, labels) {
+  // Lanes are 24 units apart, so chips stay narrower than that to keep neighbours apart.
+  g.font = '700 9px "JetBrains Mono", monospace'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  for (const { lane, hidden } of labels) {
+    const [x, y] = P(lane[0], -D + 52, lane[1] === 'L' ? 12 : 36); // just behind the last drawn car
+    const text = `+${hidden}`;
+    const w = Math.min(22, g.measureText(text).width + 4);
+    g.fillStyle = th['--accent']; g.beginPath(); g.roundRect(x - w / 2, y - 7, w, 14, 3); g.fill();
+    g.fillStyle = th['--accent-ink']; g.fillText(text, x, y + 0.5);
+  }
+  g.textBaseline = 'alphabetic';
 }
 
 /** Small top-down icon of one phase's movements. */

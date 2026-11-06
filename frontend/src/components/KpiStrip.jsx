@@ -20,8 +20,13 @@ export default function KpiStrip({ view }) {
       <Kpi label="Avg wait · 60s" value={stats.avgWait.toFixed(1)} unit="s" sub="per vehicle at the stop line" values={history.wait} />
       <Kpi label="Vehicles queued" value={stats.totalQueued} unit="veh" sub={`worst: ${AP_NAME[worst]} (${approachTotals[worst]})`} values={history.queue} />
       <Kpi label="Throughput" value={stats.throughput.toFixed(0)} unit="veh/min" sub="crossed the stop line" values={history.thru} />
-      <Kpi label="Longest wait" value={Math.round(stats.maxWait)} unit="s"
-        sub={stats.maxWait > 0 && stats.maxWaitApproach ? `${AP_NAME[stats.maxWaitApproach]} approach` : 'no one waiting'} values={history.max} />
+      {stats.maxWait === null ? (
+        // The C++ engine does not report individual vehicles' waits.
+        <Kpi label="Longest wait" value="—" unit="" sub="not reported by the engine" values={history.max} />
+      ) : (
+        <Kpi label="Longest wait" value={Math.round(stats.maxWait)} unit="s"
+          sub={stats.maxWait > 0 && stats.maxWaitApproach ? `${AP_NAME[stats.maxWaitApproach]} approach` : 'no one waiting'} values={history.max} />
+      )}
     </section>
   );
 }

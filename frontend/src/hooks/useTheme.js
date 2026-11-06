@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 const TOKENS = ['--ground', '--asphalt', '--curb', '--paint', '--paint-y', '--sig-red', '--sig-amber', '--sig-green', '--sig-off',
-  '--accent', '--fg', '--fg-2', '--fg-3', '--panel', '--panel-2', '--line', '--line-2', '--s1', '--s2', '--s3', '--s4'];
+  '--accent', '--accent-ink', '--fg', '--fg-2', '--fg-3', '--panel', '--panel-2', '--line', '--line-2', '--s1', '--s2', '--s3', '--s4'];
 
 function read() {
   const cs = getComputedStyle(document.documentElement);

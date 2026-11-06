@@ -93,6 +93,7 @@ export function useEngineFeed() {
     }
   }, []);
 
+  sim.speed = bridge.speed; // car animations keep pace with 2x and 4x
   const running = !bridge.paused;
   const actions = {
     // Accepts a value or an updater, like React's setState (App passes `r => !r`).
@@ -113,7 +114,8 @@ export function useEngineFeed() {
   else if (bridge.status === 'offline') status = 'offline';
   else if (bridge.status === 'connecting') status = 'connecting';
   else status = bridge.paused ? 'paused' : 'live';
-  const error = !reachable ? 'Cannot reach the live bridge. Is `npm run dev:live` running?' : bridge.error;
+  const error = !reachable ? 'Cannot reach the live bridge.' : bridge.error;
 
-  return { sim, view, running, speed: bridge.speed, actions, onFrame, connection: { status, error } };
+  // `reachable`: the bridge answers, so a stopped engine can be restarted from the page.
+  return { sim, view, running, speed: bridge.speed, actions, onFrame, connection: { status, error, reachable } };
 }

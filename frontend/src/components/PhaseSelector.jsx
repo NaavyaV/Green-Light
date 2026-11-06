@@ -25,6 +25,7 @@ function StateChip({ p, view }) {
 /** Four phase cards. Selecting one previews it on the map; Force puts it on manual hold. */
 export default function PhaseSelector({ view, theme, selected, onSelect, onForce, onResume }) {
   const { sig, forecast, phaseQueued } = view;
+  const engine = view.engine; // only set when the data comes from the C++ engine
   let note;
   if (selected !== null) {
     const ph = PHASES[selected];
@@ -45,12 +46,13 @@ export default function PhaseSelector({ view, theme, selected, onSelect, onForce
       <div className="phases" role="group" aria-label="Signal phases">
         {PHASES.map((p) => {
           const predicted = forecast ? Math.round(p.moves.reduce((s, mv) => s + forecast.arrivals[mv], 0)) : 0;
+          const ahead = engine && !forecast ? 'ML warming up' : `+${predicted} next 30s`;
           return (
             <button key={p.id} type="button" className="phase" aria-pressed={selected === p.id} onClick={() => onSelect(p.id)}>
               <PhaseGlyph phase={p.id} sig={sig} selected={selected} theme={theme} />
               <span className="txt">
                 <span className="pn">{p.name}</span>
-                <span className="ps">{phaseQueued[p.id]} queued · +{predicted} next 30s</span>
+                <span className="ps">{phaseQueued[p.id]} queued · {ahead}</span>
                 <span className="state"><StateChip p={p.id} view={view} /></span>
               </span>
             </button>
@@ -59,9 +61,16 @@ export default function PhaseSelector({ view, theme, selected, onSelect, onForce
       </div>
       <div className="phase-actions">
         <div className="preview-note">{note}</div>
-        <button type="button" className="btn primary" onClick={onForce}
-          disabled={selected === null || (sig.manual && sig.manualPhase === selected)}>Force phase</button>
-        <button type="button" className="btn" onClick={onResume} disabled={!sig.manual}>Resume auto</button>
+        {engine ? (
+          // The engine takes no input while it runs, so it cannot be forced.
+          <span className="chip" title="The C++ engine takes no manual input while it runs">Engine-controlled</span>
+        ) : (
+          <>
+            <button type="button" className="btn primary" onClick={onForce}
+              disabled={selected === null || (sig.manual && sig.manualPhase === selected)}>Force phase</button>
+            <button type="button" className="btn" onClick={onResume} disabled={!sig.manual}>Resume auto</button>
+          </>
+        )}
       </div>
     </div>
   );

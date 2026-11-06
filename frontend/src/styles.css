@@ -241,3 +241,17 @@ table.sig td,table.sig th{padding-left:6px;padding-right:6px}
 }
 @media (max-width:760px){.phases{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:440px){.tab .badge{display:none}.kpi .sub{display:none}}
+
+/* ---------- Live C++ engine mode ---------- */
+.sim-tag.live,.sim-tag.paused,.sim-tag.offline{display:inline;border-style:solid;font-weight:600}
+.sim-tag.live{color:var(--sig-green);border-color:var(--sig-green)}
+.sim-tag.paused{color:var(--sig-amber);border-color:var(--sig-amber)}
+.sim-tag.offline{color:var(--sig-red);border-color:var(--sig-red)}
+.engine-screen{min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--bg)}
+.engine-card{max-width:520px;padding:28px;display:grid;gap:12px;justify-items:start}
+.engine-card h1{margin:0;font-family:var(--f-display);font-size:22px;letter-spacing:.04em}
+.engine-card p{margin:0;color:var(--fg-2);line-height:1.5}
+.engine-banner{margin:0 16px;padding:8px 12px;border:1px solid var(--sig-red);border-radius:8px;background:var(--panel);color:var(--fg-2);font-size:13px;display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center}
+.engine-banner b{color:var(--sig-red)}
+.engine-error{font-family:var(--f-mono);font-size:12px;color:var(--sig-red);overflow-wrap:anywhere}
+.engine-card code,.engine-banner code{font-family:var(--f-mono);font-size:12px;background:var(--panel-2);padding:1px 5px;border-radius:4px}
