@@ -6,7 +6,8 @@
 #include <sstream>
 
 namespace greenlight {
-std::string snapshot_json(const TrafficState& state, ControllerMode mode) {
+std::string snapshot_json(const TrafficState& state, ControllerMode mode,
+                          const std::optional<ForecastProjection>& projection) {
     // All string values come from internal enum labels or movement constants.
     constexpr std::array<const char*, 4> phases{
         "NS_LEFT", "NS_THROUGH_RIGHT", "EW_LEFT", "EW_THROUGH_RIGHT"};
@@ -51,8 +52,10 @@ std::string snapshot_json(const TrafficState& state, ControllerMode mode) {
         << "\",\"next_phase\":\"" << phases[static_cast<std::size_t>(state.next_phase)]
         << "\",\"next_light_state\":\"" << light(state.next_stage)
         << "\",\"recommendation\":null,\"agrees_with_model\":null}"
-        << ",\"seconds_left\":null,\"schedule\":null,\"queue_forecast\":null"
-        << ",\"vehicles\":null,\"forecast_error\":null,\"lights\":{";
+        << ",\"seconds_left\":";
+    if (state.seconds_left) out << *state.seconds_left;
+    else out << "null";
+    out << ",\"vehicles\":null,\"lights\":{";
     const auto active = green_movements(state.phase, SignalStage::Green);
     for (std::size_t i = 0; i < movement_count; ++i) {
         const auto* color = !active[i] || state.stage == SignalStage::AllRed ? "red" : light(state.stage);
@@ -87,6 +90,39 @@ std::string snapshot_json(const TrafficState& state, ControllerMode mode) {
         out << "]}";
     } else {
         out << "null";
+    }
+    out << ",\"forecast_error\":";
+    if (state.forecast_error) {
+        const auto& error = *state.forecast_error;
+        out << "{\"generated_at_seconds\":" << error.generated_at
+            << ",\"evaluated_at_seconds\":" << error.evaluated_at
+            << ",\"mae_vehicles\":" << error.mae << '}';
+    } else {
+        out << "null";
+    }
+    out << ",\"projection_method\":";
+    if (!projection) {
+        out << "null,\"schedule\":null,\"queue_forecast\":null";
+    } else {
+        out << "\"uniform_arrivals_frozen_forecast\",\"schedule\":[";
+        for (std::size_t start = 0; start < projection->size();) {
+            const auto& interval = (*projection)[start];
+            auto end = start + 1;
+            while (end < projection->size() && (*projection)[end].phase == interval.phase &&
+                   (*projection)[end].stage == interval.stage) ++end;
+            out << (start ? "," : "") << "{\"start\":" << state.time_seconds + start
+                << ",\"end\":" << state.time_seconds + end << ",\"phase\":\""
+                << phases[static_cast<std::size_t>(interval.phase)] << "\",\"light_state\":\""
+                << light(interval.stage) << "\"}";
+            start = end;
+        }
+        out << "],\"queue_forecast\":{";
+        for (std::size_t i = 0; i < movement_count; ++i) {
+            out << (i ? "," : "") << '"' << movement_names[i] << "\":[" << state.movements[i].queue;
+            for (const auto& second : *projection) out << ',' << second.queues[i];
+            out << ']';
+        }
+        out << '}';
     }
     out << '}';
     return out.str();

@@ -48,7 +48,7 @@ int main(int argc, char** argv) {
         for (unsigned t = 0; t < seconds; ++t) {
             const auto& state = sim.step();
             if (jsonl) {
-                std::cout << greenlight::snapshot_json(state, config.controller) << '\n';
+                std::cout << greenlight::snapshot_json(state, config.controller, sim.project_forecast()) << '\n';
                 continue;
             }
             std::cout << greenlight::status_line(state) << '\n';

@@ -186,7 +186,42 @@ std::optional<std::array<double, 60>> Simulator::forecast_features() const {
     }
     return features;
 }
+std::optional<ForecastProjection> Simulator::project_forecast() const {
+    if (!state_.prediction) return std::nullopt;
+    // Run the same queue and signal rules on a copy, using only the current
+    // forecast. Neither future RNG draws nor future model updates are used.
+    Simulator projected(*this);
+    projected.model_.reset();
+    projected.pending_forecasts_.clear();
+    ForecastProjection result{};
+    for (std::size_t second = 0; second < result.size(); ++second) {
+        std::array<unsigned, movement_count> arrivals{};
+        for (std::size_t i = 0; i < movement_count; ++i) {
+            const double rate = std::min(1.0, state_.prediction->arrivals[i] / result.size());
+            arrivals[i] = static_cast<unsigned>(std::floor(rate * (second + 1)) -
+                                                std::floor(rate * second));
+        }
+        const auto& frame = projected.step_with_arrivals(arrivals);
+        result[second].phase = frame.phase;
+        result[second].stage = frame.stage;
+        for (std::size_t i = 0; i < movement_count; ++i)
+            result[second].queues[i] = frame.movements[i].queue;
+    }
+    return result;
+}
+
 const TrafficState& Simulator::step() {
+    std::array<unsigned, movement_count> arrivals{};
+    for (std::size_t i = 0; i < movement_count; ++i) {
+        // Explicit mapping avoids implementation-dependent std::bernoulli_distribution.
+        const double sample = static_cast<double>(rng_()) / 4294967296.0;
+        arrivals[i] = sample < config_.arrival_probability[i] ? 1 : 0;
+    }
+    return step_with_arrivals(arrivals);
+}
+
+const TrafficState& Simulator::step_with_arrivals(
+    const std::array<unsigned, movement_count>& arrivals) {
     // Apply the signal for [t,t+1). Arrivals join at t, service occurs at t,
     // then remaining vehicles accrue one second of waiting. Publish at t+1.
     const bool reactive = config_.controller != ControllerMode::Fixed;
@@ -197,9 +232,7 @@ const TrafficState& Simulator::step() {
     const auto mask = green_movements(state_.phase, state_.stage);
     for (std::size_t i = 0; i < movement_count; ++i) {
         auto& m = state_.movements[i];
-        // Explicit mapping avoids implementation-dependent std::bernoulli_distribution.
-        const double sample = static_cast<double>(rng_()) / 4294967296.0;
-        m.arrivals = sample < config_.arrival_probability[i] ? 1 : 0;
+        m.arrivals = arrivals[i];
         m.total_arrivals += m.arrivals;
         if (model_) arrivals_[state_.time_seconds % arrivals_.size()][i] = m.arrivals;
         if (m.arrivals) queues_[i].push_back(state_.time_seconds);
@@ -216,6 +249,21 @@ const TrafficState& Simulator::step() {
         m.queued_vehicle_seconds += m.queue;
     }
     ++state_.time_seconds;
+    if (!pending_forecasts_.empty()) {
+        const auto& forecast = pending_forecasts_.front();
+        if (state_.time_seconds == forecast.generated_at + forecast.horizon_seconds) {
+            // Divide before summing so even very large finite predictions stay finite.
+            double mae = 0;
+            for (std::size_t i = 0; i < movement_count; ++i) {
+                std::uint64_t actual = 0;
+                for (auto t = forecast.generated_at; t < state_.time_seconds; ++t)
+                    actual += arrivals_[t % arrivals_.size()][i];
+                mae += std::abs(forecast.arrivals[i] - actual) / movement_count;
+            }
+            state_.forecast_error = ForecastError{forecast.generated_at, state_.time_seconds, mae};
+            pending_forecasts_.pop_front();
+        }
+    }
     if (state_.time_seconds % 5 == 0) {
         if (const auto features = forecast_features()) {
             const auto finite = [](double value) { return std::isfinite(value); };
@@ -229,6 +277,7 @@ const TrafficState& Simulator::step() {
                     for (std::size_t i = 0; i < movement_count; ++i)
                         prediction.arrivals[i] = std::max(0.0, counts[i]);
                     state_.prediction = prediction;
+                    pending_forecasts_.push_back(prediction);
                     state_.model_status = ModelStatus::Ready;
                 }
             }
@@ -243,6 +292,16 @@ const TrafficState& Simulator::step() {
     }
     state_.next_phase = reactive ? reactive_.phase() : controller_.phase();
     state_.next_stage = reactive ? reactive_.stage() : controller_.stage();
+    state_.seconds_left.reset();
+    if (state_.stage == SignalStage::Yellow)
+        state_.seconds_left = config_.signals.yellow_seconds - state_.signal_elapsed;
+    else if (state_.stage == SignalStage::AllRed)
+        state_.seconds_left = config_.signals.all_red_seconds - state_.signal_elapsed;
+    else if (!reactive)
+        state_.seconds_left = config_.signals.green_seconds[static_cast<std::size_t>(state_.phase)]
+                            - state_.signal_elapsed;
+    else if (state_.next_stage != state_.stage)
+        state_.seconds_left = 0;
     return state_;
 }
 std::string status_line(const TrafficState& s) {

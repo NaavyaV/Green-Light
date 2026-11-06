@@ -38,3 +38,24 @@ The engine supports versioned JSON Lines output for replay in a frontend
 scratch copy. See the [snapshot schema and React adapter example](src/engine/README.md#json-lines-snapshots-and-frontend-handoff)
 for build commands, forecast metadata, and the dashboard fields that require
 adaptation.
+
+### Run the browser replay
+
+Run from this integration checkout with the team's `origin/frontend` ref available:
+
+```sh
+cmake -S . -B /tmp/green-light-build
+cmake --build /tmp/green-light-build -j4
+ctest --test-dir /tmp/green-light-build --output-on-failure
+/tmp/green-light-build/green_light 120 42 --controller predictive --demand normal \
+  --ml-impute-speed ml_handoff/model_weights.txt --format jsonl > /tmp/green-light-replay.jsonl
+app=$(sh integration/prepare-replay.sh /tmp/green-light-replay.jsonl)
+(cd "$app" && npm ci && npm run dev -- --host 127.0.0.1)
+```
+
+Open the Vite URL with `?replay`. The setup script creates a temporary copy of the
+team's app with a read-only replay route. The plain URL still opens its original
+browser-local simulator. Use the slider or Play to inspect the recording.
+Forecasts appear at second 60 and completed forecast MAE at second 90. Cars
+illustrate queue counts, and the schedule and queue curve are labeled projections.
+See the [snapshot contract](docs/SNAPSHOT.md) for the projection assumptions.
