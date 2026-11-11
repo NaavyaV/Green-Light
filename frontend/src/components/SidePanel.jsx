@@ -3,6 +3,9 @@ import { AGREEMENT } from '../lib/format.js';
 import QueuesPanel from './QueuesPanel.jsx';
 import ForecastPanel from './ForecastPanel.jsx';
 import ControllerPanel from './ControllerPanel.jsx';
+import EngineForecastPanel from './EngineForecastPanel.jsx';
+import EngineControllerPanel from './EngineControllerPanel.jsx';
+import { decisionSourceLabel } from '../engine/labels.js';
 
 const ICONS = {
   sig: (
@@ -28,21 +31,23 @@ function initialTab() {
 }
 
 /** Right-hand panel with vertical tabs. Each tab shows a live badge so hidden tabs still report status. */
-export default function SidePanel({ view, theme, intersection }) {
+export default function SidePanel({ view, theme, intersection, onEngineRestart }) {
   const [tab, setTab] = useState(initialTab);
   const refs = useRef({});
   const engine = view.engine; // only set when the data comes from the C++ engine
   const tabs = [
     { key: 'sig', label: 'Queues', badge: `${view.stats.totalQueued} queued` },
-    { key: 'fc', label: 'ML forecast', badge: `in ${Math.ceil(view.nextForecastIn)}s` },
+    {
+      key: 'fc',
+      label: 'ML forecast',
+      badge: engine && engine.modelStatus === 'warming_up' ? 'warming up' : `in ${Math.ceil(view.nextForecastIn)}s`,
+    },
     {
       key: 'ctl',
       label: 'Controller',
-      badge: engine ? (view.decision?.action ?? '—') : view.decision ? AGREEMENT[view.decision.agreement].short : '—',
+      badge: engine ? decisionSourceLabel(engine)[0] : view.decision ? AGREEMENT[view.decision.agreement].short : '—',
     },
   ];
-  // TEMPORARY (stage D1): engine versions of these two tabs arrive in stage D2.
-  const pending = <div className="pb" style={{ color: 'var(--fg-3)' }}>Engine view of this tab is coming in stage D2.</div>;
   const select = (k, focus) => {
     setTab(k);
     try { localStorage.setItem('gl-tab', k); } catch { /* ignore */ }
@@ -73,10 +78,10 @@ export default function SidePanel({ view, theme, intersection }) {
           <QueuesPanel view={view} intersection={intersection} />
         </section>
         <section className="tp" role="tabpanel" id="tp-fc" aria-labelledby="tab-fc" hidden={tab !== 'fc'}>
-          {engine ? pending : <ForecastPanel view={view} theme={theme} />}
+          {engine ? <EngineForecastPanel view={view} /> : <ForecastPanel view={view} theme={theme} />}
         </section>
         <section className="tp" role="tabpanel" id="tp-ctl" aria-labelledby="tab-ctl" hidden={tab !== 'ctl'}>
-          {engine ? pending : <ControllerPanel view={view} />}
+          {engine ? <EngineControllerPanel view={view} onRestart={onEngineRestart} /> : <ControllerPanel view={view} />}
         </section>
       </div>
     </aside>

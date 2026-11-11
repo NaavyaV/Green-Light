@@ -158,8 +158,9 @@ test('pause stops snapshots and resume continues from the next second', async ()
   assert.equal(client.snapshots().length, before, 'snapshots arrived while paused');
   assert.equal((await getJson('/api/health')).body.paused, true);
 
+  const nextP = client.next(isSnapshot); // listen before acting (see the restart test)
   assert.equal((await control({ action: 'resume' })).code, 200);
-  const next = await client.next(isSnapshot);
+  const next = await nextP;
   assert.equal(next.data.time_seconds, lastTime + 1);
   client.close();
 });
@@ -228,16 +229,19 @@ test('wrong routes and methods are refused', async () => {
 test('restart applies new settings and starts again from second 1', async () => {
   const client = connect();
   await client.next((e) => e.type === 'hello');
+  // Listen before acting: the bridge broadcasts the new hello while it is
+  // still handling the request, so it can arrive before the HTTP reply.
+  const helloAfter = client.next((e) => e.type === 'hello');
+  const firstFixed = client.next((e) => isSnapshot(e) && e.data.controller_mode === 'fixed');
   const res = await control({ action: 'restart', seed: 7, controller: 'fixed', demand: 'overloaded' });
   assert.equal(res.code, 200);
   assert.deepEqual(res.body.settings, { seed: 7, controller: 'fixed', demand: 'overloaded' });
 
-  const hello = await client.next((e) => e.type === 'hello');
+  const hello = await helloAfter;
   assert.equal(hello.data.history.length, 0);
   assert.equal(hello.data.settings.seed, 7);
-  const snap = await client.next(isSnapshot);
+  const snap = await firstFixed;
   assert.equal(snap.data.time_seconds, 1);
-  assert.equal(snap.data.controller_mode, 'fixed');
 
   await control({ action: 'restart', seed: 42, controller: 'predictive', demand: 'normal' });
   client.close();
@@ -259,8 +263,9 @@ test('if the engine dies, clients are told it is offline, and restart recovers',
   const client = connect();
   await client.next((e) => e.type === 'hello');
   const { pid } = (await getJson('/api/health')).body;
+  const offlineP = client.next((e) => e.type === 'status' && e.data.status === 'offline'); // listen first
   process.kill(pid);
-  const offline = await client.next((e) => e.type === 'status' && e.data.status === 'offline');
+  const offline = await offlineP;
   assert.match(offline.data.error, /Engine (exited|was stopped)/);
   assert.equal((await getJson('/api/health')).body.pid, null);
 

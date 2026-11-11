@@ -258,6 +258,101 @@ test('lamps and the canvas sim show each movement light from the engine', () => 
   assert.deepEqual([...colors].sort(), ['green', 'red', 'yellow']);
 });
 
+// ----- forecast scoring, signal history, rule checks ---------------------------
+
+// Arrivals per entry-approach movement summed over snapshots with time in [from, to].
+function arrivalsBetween(from, to) {
+  const out = Object.fromEntries(Object.values(ENTRY).map((k) => [k, 0]));
+  for (const raw of RUN) {
+    if (raw.time_seconds < from || raw.time_seconds > to) continue;
+    const a = byEntry(raw, 'arrivals');
+    for (const k in out) out[k] += a[k];
+  }
+  return out;
+}
+const mae = (p, a) => Object.keys(a).reduce((s, k) => s + Math.abs(p[k] - a[k]), 0) / Object.keys(a).length;
+
+test('each forecast is scored against the arrivals in the 30 s after it, and against a naive guess', () => {
+  const { view } = viewAfter(400);
+  const score = view.forecastScore;
+  // Forecasts at 60, 65, ..., 370 have had their 30 s by second 400.
+  const scored = [];
+  for (let g = 60; g + 30 <= 400; g += 5) scored.push(g);
+  assert.equal(score.count, scored.length);
+  assert.equal(score.latest.generatedAt, 370);
+  assert.equal(score.latest.scoredAt, 400);
+
+  let modelSum = 0;
+  let naiveSum = 0;
+  for (const g of scored) {
+    const raw = RUN[g - 1];
+    const predicted = Object.fromEntries(raw.movement_order.map((m, i) => [ENTRY[m], raw.forecast.arrivals[i]]));
+    const actual = arrivalsBetween(g + 1, g + 30);
+    const naive = arrivalsBetween(g - 29, g);
+    modelSum += mae(predicted, actual);
+    naiveSum += mae(naive, actual);
+    if (g === 370) {
+      assert.deepEqual(score.latest.actual, actual);
+      close(score.latest.modelError, mae(predicted, actual), 'latest model error');
+      close(score.latest.naiveError, mae(naive, actual), 'latest naive error');
+      close(score.latest.actualTotal, Object.values(actual).reduce((s, v) => s + v, 0), 'actual total');
+    }
+  }
+  close(score.meanModelError, modelSum / scored.length, 'mean model error');
+  close(score.meanNaiveError, naiveSum / scored.length, 'mean naive error');
+  assert.equal(score.recent.length, 10);
+  assert.equal(score.nextScoreIn, 375 + 30 - 400);
+});
+
+test('nothing is scored before a forecast has had its full 30 s', () => {
+  const { view } = viewAfter(89);
+  assert.equal(view.forecastScore.count, 0);
+  assert.equal(view.forecastScore.latest, null);
+  assert.equal(view.forecastScore.nextScoreIn, 1); // the forecast from second 60 is scored at 90
+  assert.equal(viewAfter(90).view.forecastScore.count, 1);
+});
+
+test('signal history is the last 30 s as runs of identical states', () => {
+  const { view } = viewAfter(250);
+  const runs = view.signalHistory;
+  assert.equal(runs.reduce((s, r) => s + r.seconds, 0), 30);
+  const expanded = runs.flatMap((r) => Array(r.seconds).fill(`${r.phase}${r.stage}`));
+  const expected = RUN.slice(220, 250).map((raw) =>
+    `${ENGINE_PHASES.indexOf(raw.phase)}${{ green: 'G', yellow: 'Y', all_red: 'AR' }[raw.light_state]}`);
+  assert.deepEqual(expanded, expected);
+  for (let i = 1; i < runs.length; i++) {
+    assert.ok(runs[i].phase !== runs[i - 1].phase || runs[i].stage !== runs[i - 1].stage);
+  }
+});
+
+test('rule checks report what the engine actually did, and the engine obeys its rules', () => {
+  const { view } = viewAfter(400);
+  const rc = view.ruleChecks;
+  // Independent: a state's length is the elapsed counter in its last second.
+  const lengths = { green: [], yellow: [], all_red: [] };
+  for (let i = 1; i < RUN.length; i++) {
+    const a = RUN[i - 1];
+    const b = RUN[i];
+    if (a.phase !== b.phase || a.light_state !== b.light_state) lengths[a.light_state].push(a.phase_elapsed_seconds);
+  }
+  const check = (got, values) => {
+    assert.equal(got.count, values.length);
+    assert.equal(got.min, Math.min(...values));
+    assert.equal(got.max, Math.max(...values));
+  };
+  check(rc.green, lengths.green);
+  check(rc.yellow, lengths.yellow);
+  check(rc.allRed, lengths.all_red);
+  // Sid's engine rules (min green 5, max 40, yellow 3, all-red 2), as observed.
+  assert.ok(rc.green.min >= 5 && rc.green.max <= 40);
+  assert.ok(rc.yellow.min === 3 && rc.yellow.max === 3);
+  assert.ok(rc.allRed.min === 2 && rc.allRed.max === 2);
+  assert.equal(rc.conflicts.secondsChecked, 400);
+  assert.equal(rc.conflicts.secondsInConflict, 0);
+  const last = RUN[399];
+  assert.equal(rc.currentGreen, last.light_state === 'green' ? last.phase_elapsed_seconds : null);
+});
+
 // ----- EngineSim: cars drawn from the engine's counts --------------------------
 
 function laneCounts(sim) {

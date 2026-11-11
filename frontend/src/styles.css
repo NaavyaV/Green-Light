@@ -255,3 +255,15 @@ table.sig td,table.sig th{padding-left:6px;padding-right:6px}
 .engine-banner b{color:var(--sig-red)}
 .engine-error{font-family:var(--f-mono);font-size:12px;color:var(--sig-red);overflow-wrap:anywhere}
 .engine-card code,.engine-banner code{font-family:var(--f-mono);font-size:12px;background:var(--panel-2);padding:1px 5px;border-radius:4px}
+.ebars{display:flex;flex-direction:column;gap:5px}
+.ebar-row{display:grid;grid-template-columns:52px minmax(0,1fr) 70px;align-items:center;gap:8px;font-size:12px}
+.ebar-row .rl{font-family:var(--f-display);font-weight:700}
+.ebar-row b{font-family:var(--f-mono);font-weight:500;text-align:right}
+.ebar-row b small{color:var(--fg-3)}
+.ebar-track{position:relative;height:14px;border-radius:4px;background:var(--panel-2);overflow:hidden}
+.ebar-track i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+.ebar-track i.cmp{top:auto;height:4px;background:var(--fg);opacity:.75}
+.facts small{font-size:10px;color:var(--fg-3)}
+.engine-settings{margin-top:16px;border-top:1px solid var(--line);padding-top:10px;font-size:12px;color:var(--fg-3)}
+.engine-settings summary{cursor:pointer;font-family:var(--f-display);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:11px}
+.engine-settings .field{margin-top:8px;display:inline-flex}

@@ -7,7 +7,10 @@ function Lamp({ lamp }) {
 
 export default function QueuesPanel({ view, intersection }) {
   const { stats, lamps, measuredRates, sig } = view;
+  const engine = view.engine; // only set when the data comes from the C++ engine
   const q = stats.queues;
+  // The engine publishes no countdowns, so a lit light shows how long it has been on.
+  const lampOf = (mv) => (engine ? { state: lamps[mv].state, text: lamps[mv].state === 'R' ? '' : `${sig.t}s` } : lamps[mv]);
   // Pedestrians cross the N/S legs while E/W through traffic is green, and vice versa
   const walk = (a) => sig.stage === 'G' && sig.phase === (a === 'N' || a === 'S' ? 3 : 1);
   return (
@@ -25,9 +28,13 @@ export default function QueuesPanel({ view, intersection }) {
               return (
                 <tr key={a}>
                   <td><span className="appr">{AP_NAME[a]}<small>{a === 'N' || a === 'S' ? intersection.ns : intersection.ew}</small></span></td>
-                  <td><Lamp lamp={lamps[a + 'L']} /></td>
-                  <td><Lamp lamp={lamps[a + 'T']} /></td>
-                  <td className="ped" style={{ color: walk(a) ? 'var(--sig-green)' : 'var(--fg-3)' }}>{walk(a) ? 'WALK' : 'DON’T'}</td>
+                  <td><Lamp lamp={lampOf(a + 'L')} /></td>
+                  <td><Lamp lamp={lampOf(a + 'T')} /></td>
+                  {engine ? (
+                    <td className="ped" style={{ color: 'var(--fg-3)' }} title="The engine does not model pedestrians">—</td>
+                  ) : (
+                    <td className="ped" style={{ color: walk(a) ? 'var(--sig-green)' : 'var(--fg-3)' }}>{walk(a) ? 'WALK' : 'DON’T'}</td>
+                  )}
                   <td>
                     <div className="qcells">
                       <span className={`qc ${ql >= 6 ? 'hot' : ''}`}>{ql}</span>
@@ -42,7 +49,11 @@ export default function QueuesPanel({ view, intersection }) {
             })}
           </tbody>
         </table>
-        <p className="note">Countdowns: a green or yellow light shows time left. A red light shows the estimated wait (~) until it turns green, based on the controller&apos;s current schedule.</p>
+        {engine ? (
+          <p className="note">Live from the C++ engine. A green or yellow light shows how long it has been on; the engine publishes no countdowns or pedestrian signals. Arrivals are measured over the last 60 s.</p>
+        ) : (
+          <p className="note">Countdowns: a green or yellow light shows time left. A red light shows the estimated wait (~) until it turns green, based on the controller&apos;s current schedule.</p>
+        )}
       </div>
     </>
   );

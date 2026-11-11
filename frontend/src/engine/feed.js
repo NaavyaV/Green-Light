@@ -13,6 +13,9 @@ const SAMPLE_EVERY = 2; // seconds between sparkline samples (matches the browse
 const HISTORY_LEN = 90; // sparkline samples kept (3 minutes)
 const KEEP_FRAMES = WINDOW + 1; // a window needs one frame before it as a baseline
 const LOG_LEN = 5;
+const HORIZON = 30; // seconds a forecast covers (the engine's horizon_seconds)
+const TIMELINE = 30; // seconds of signal history for the Controller tab
+const SCORES_KEPT = 10;
 
 // The engine's phase names, in the same order as PHASES ids 0-3.
 const ENGINE_PHASES = ['NS_LEFT', 'NS_THROUGH_RIGHT', 'EW_LEFT', 'EW_THROUGH_RIGHT'];
@@ -28,7 +31,63 @@ export function createFeedState() {
     lastGreen: [null, null, null, null], // last second each phase showed green
     mlLog: [],
     decisionLog: [],
+    // Forecast scoring: forecasts waiting for their 30 s to pass, and the results.
+    pendingForecasts: [],
+    scores: [], // newest first
+    scoreTotals: { count: 0, modelError: 0, naiveError: 0 },
+    // Observed light-state lengths, for the rule checks.
+    durations: { G: [], Y: [], AR: [] }, // seconds each completed state lasted
+    conflicts: { secondsChecked: 0, secondsInConflict: 0 },
   };
+}
+
+const sumOver = (frames, key) => frames.reduce((s, f) => s + f.view.arrivals[key], 0);
+const movementKeys = (record) => Object.keys(record);
+
+// Mean absolute error per movement between two { key: count } records.
+function meanAbsError(predicted, actual) {
+  const keys = movementKeys(actual);
+  return keys.reduce((s, k) => s + Math.abs(predicted[k] - actual[k]), 0) / keys.length;
+}
+
+// Score forecasts whose 30 seconds have now fully passed. A forecast made at
+// second G covers the arrivals reported in seconds G+1 ... G+30. The naive
+// baseline guesses that those 30 seconds repeat the 30 seconds before G.
+function scoreForecasts(state, T) {
+  const frames = state.frames;
+  for (const p of state.pendingForecasts) {
+    if (T !== p.generatedAt + HORIZON) continue;
+    const window = frames.slice(-HORIZON);
+    const consecutive = window.length === HORIZON && window[0].view.T === p.generatedAt + 1;
+    if (!consecutive) continue; // missed seconds: cannot score honestly
+    const actual = {};
+    for (const k of movementKeys(p.predicted)) actual[k] = sumOver(window, k);
+    const total = (r) => Object.values(r).reduce((s, v) => s + v, 0);
+    const score = {
+      generatedAt: p.generatedAt,
+      scoredAt: T,
+      predicted: p.predicted,
+      actual,
+      predictedTotal: total(p.predicted),
+      actualTotal: total(actual),
+      modelError: meanAbsError(p.predicted, actual),
+      naiveError: p.naive ? meanAbsError(p.naive, actual) : null,
+    };
+    state.scores.unshift(score);
+    if (state.scores.length > SCORES_KEPT) state.scores.pop();
+    if (score.naiveError !== null) {
+      state.scoreTotals.count += 1;
+      state.scoreTotals.modelError += score.modelError;
+      state.scoreTotals.naiveError += score.naiveError;
+    }
+  }
+  state.pendingForecasts = state.pendingForecasts.filter((p) => p.generatedAt + HORIZON > T);
+}
+
+function recordDuration(state, stage, seconds) {
+  const d = state.durations[stage];
+  d.push(seconds);
+  if (d.length > 200) d.shift(); // plenty for min/max; bounded memory on long runs
 }
 
 // The bridge's first message, and the message after every restart: start over.
@@ -61,6 +120,23 @@ export function applySnapshot(state, raw) {
     if (T === 1) state.lastGreen = [0, 0, 0, 0];
   }
 
+  // A light state ended: record how long it lasted. The engine's elapsed
+  // counter covers the whole state even if we joined part-way through it.
+  const prev = state.frames[state.frames.length - 1];
+  if (prev && prev.view.T === T - 1 &&
+      (prev.view.sig.phase !== view.sig.phase || prev.view.sig.stage !== view.sig.stage)) {
+    recordDuration(state, prev.view.sig.stage, prev.view.sig.t);
+  }
+
+  // No north-south movement may be green at the same time as an east-west one.
+  if (view.lights) {
+    const green = (k) => view.lights[k] === 'green';
+    const ns = ['N', 'S'].some((a) => MOVES.some((m) => green(a + m)));
+    const ew = ['E', 'W'].some((a) => MOVES.some((m) => green(a + m)));
+    state.conflicts.secondsChecked += 1;
+    if (ns && ew) state.conflicts.secondsInConflict += 1;
+  }
+
   state.frames.push({ view, raw });
   if (state.frames.length > KEEP_FRAMES) state.frames.shift();
 
@@ -69,7 +145,14 @@ export function applySnapshot(state, raw) {
   if (view.forecast && view.forecast.generatedAt === T) {
     state.mlLog.unshift({ t: T, arrivals: view.forecast.arrivals });
     if (state.mlLog.length > LOG_LEN) state.mlLog.pop();
+    // Queue it for scoring, with the naive "last 30 s repeat" guess if we saw them.
+    const before = state.frames.slice(-HORIZON);
+    const naive = before.length === HORIZON && before[0].view.T === T - HORIZON + 1
+      ? Object.fromEntries(movementKeys(view.forecast.arrivals).map((k) => [k, sumOver(before, k)]))
+      : null;
+    state.pendingForecasts.push({ generatedAt: T, predicted: view.forecast.arrivals, naive });
   }
+  scoreForecasts(state, T);
 
   if (raw.decision && raw.decision.action === 'switch') {
     state.decisionLog.unshift({
@@ -222,12 +305,60 @@ export function buildView(state) {
       thru: [...state.history.thru],
       max: [...state.history.max],
     },
+    forecastScore: forecastScore(state, T),
+    signalHistory: signalHistory(state.frames),
+    ruleChecks: ruleChecks(state, sig),
     engine: {
       controllerMode: view.controllerMode,
       decisionSource: view.decisionSource,
       modelStatus: view.modelStatus,
       bridge: { ...state.bridge },
     },
+  };
+}
+
+// Latest scored forecast, recent results, running averages and when the next score lands.
+function forecastScore(state, T) {
+  const { count, modelError, naiveError } = state.scoreTotals;
+  const next = state.pendingForecasts.length
+    ? Math.min(...state.pendingForecasts.map((p) => p.generatedAt + HORIZON)) - T
+    : null;
+  return {
+    latest: state.scores[0] ?? null,
+    recent: state.scores.map((s) => ({
+      generatedAt: s.generatedAt, predictedTotal: s.predictedTotal, actualTotal: s.actualTotal,
+      modelError: s.modelError, naiveError: s.naiveError,
+    })),
+    count,
+    meanModelError: count ? modelError / count : null,
+    meanNaiveError: count ? naiveError / count : null,
+    nextScoreIn: next,
+  };
+}
+
+// The last 30 seconds of signal states, oldest first, as runs of identical states.
+function signalHistory(frames) {
+  const recent = frames.slice(-TIMELINE);
+  const out = [];
+  for (const { view } of recent) {
+    const last = out[out.length - 1];
+    if (last && last.phase === view.sig.phase && last.stage === view.sig.stage) last.seconds += 1;
+    else out.push({ phase: view.sig.phase, stage: view.sig.stage, seconds: 1 });
+  }
+  return out;
+}
+
+// What the signal has actually done since we started watching, for the rule checks.
+function ruleChecks(state, sig) {
+  const range = (values) => (values.length
+    ? { count: values.length, min: Math.min(...values), max: Math.max(...values) }
+    : { count: 0, min: null, max: null });
+  return {
+    green: range(state.durations.G),
+    yellow: range(state.durations.Y),
+    allRed: range(state.durations.AR),
+    currentGreen: sig.stage === 'G' ? sig.t : null,
+    conflicts: { ...state.conflicts },
   };
 }
 

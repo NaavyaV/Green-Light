@@ -61,7 +61,7 @@ export default function App() {
             onResume={actions.resumeAuto}
           />
         </div>
-        <SidePanel view={view} theme={theme} intersection={INTERSECTIONS[isect]} />
+        <SidePanel view={view} theme={theme} intersection={INTERSECTIONS[isect]} onEngineRestart={actions.restart} />
       </div>
     </div>
   );
