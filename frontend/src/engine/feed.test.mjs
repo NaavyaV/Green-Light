@@ -304,6 +304,24 @@ test('each forecast is scored against the arrivals in the 30 s after it, and aga
   assert.equal(score.nextScoreIn, 375 + 30 - 400);
 });
 
+test('the dashboard score agrees with the engine\'s own forecast_error, when the engine sends one', (t) => {
+  const withScores = RUN.filter((raw) => raw.forecast_error && typeof raw.forecast_error === 'object');
+  if (!withScores.length) {
+    t.skip('this engine build does not report forecast_error');
+    return;
+  }
+  let compared = 0;
+  for (const raw of withScores) {
+    const { generated_at_seconds: g, evaluated_at_seconds: at, mae_vehicles: engineMae } = raw.forecast_error;
+    if (at !== raw.time_seconds) continue; // compare when the score is fresh
+    const { view } = viewAfter(raw.time_seconds);
+    assert.equal(view.forecastScore.latest.generatedAt, g);
+    close(view.forecastScore.latest.modelError, engineMae, `MAE for the forecast from ${g}`);
+    compared += 1;
+  }
+  assert.ok(compared > 10, `only ${compared} scores compared`);
+});
+
 test('nothing is scored before a forecast has had its full 30 s', () => {
   const { view } = viewAfter(89);
   assert.equal(view.forecastScore.count, 0);

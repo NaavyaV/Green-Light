@@ -42,8 +42,44 @@ for (const [mode, model] of [
     assert.deepEqual(Object.keys(row.lights), order);
     assert(Object.values(row.lights).every(color => ['red', row.light_state].includes(color)));
     assert.equal(row.decision.source, row.decision_source);
+    if (row.light_state === 'yellow') assert.equal(row.seconds_left, 3 - row.phase_elapsed_seconds);
+    else if (row.light_state === 'all_red') assert.equal(row.seconds_left, 2 - row.phase_elapsed_seconds);
+    else if (mode === 'fixed') assert.equal(row.seconds_left,
+      (row.phase.endsWith('_LEFT') ? 10 : 20) - row.phase_elapsed_seconds);
+    else assert.equal(row.seconds_left, row.decision.action === 'switch' ? 0 : null);
     assert.equal(row.decision.agrees_with_model, null);
-    assert.equal(row.schedule, null);
+    if (!row.forecast) {
+      assert.equal(row.schedule, null);
+      assert.equal(row.queue_forecast, null);
+    } else {
+      assert.equal(row.projection_method, 'uniform_arrivals_frozen_forecast');
+      assert.equal(row.schedule[0].start, t);
+      assert.equal(row.schedule[0].phase, row.decision.next_phase);
+      assert.equal(row.schedule[0].light_state, row.decision.next_light_state);
+      assert.equal(row.schedule.at(-1).end, t + 30);
+      row.schedule.forEach((segment, j) => {
+        assert(segment.end > segment.start);
+        if (j) assert.equal(segment.start, row.schedule[j - 1].end);
+      });
+      order.forEach((movement, j) => {
+        assert.equal(row.queue_forecast[movement].length, 31);
+        assert.equal(row.queue_forecast[movement][0], row.queues[j]);
+        assert(row.queue_forecast[movement].every(q => Number.isSafeInteger(q) && q >= 0));
+      });
+    }
+    if (!model || t < 90) assert.equal(row.forecast_error, null);
+    else {
+      const evaluated = t - t % 5;
+      const issued = evaluated - 30;
+      const prediction = rows[issued - 1].forecast.arrivals;
+      const actual = Array(12).fill(0);
+      for (const frame of rows.slice(issued, evaluated))
+        frame.arrivals.forEach((count, j) => { actual[j] += count; });
+      const mae = actual.reduce((sum, count, j) => sum + Math.abs(count - prediction[j]), 0) / 12;
+      assert.equal(row.forecast_error.generated_at_seconds, issued);
+      assert.equal(row.forecast_error.evaluated_at_seconds, evaluated);
+      assert(Math.abs(row.forecast_error.mae_vehicles - mae) < 1e-10);
+    }
     assert.equal(row.decision.action, row.light_state !== 'green' ? 'clearance'
       : row.decision.next_light_state === 'green' ? 'hold' : 'switch');
     if (rows[i + 1]) {

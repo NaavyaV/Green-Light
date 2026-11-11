@@ -323,9 +323,10 @@ inference can restore forecasts. An invalid model file remains a startup error.
 For the replay panels, display real queues, lights, completed-vehicle metrics,
 and the 12 forecast arrival totals. A visual cap on rendered cars should retain
 the full count in a label. Consecutive snapshots can show an observed switch
-or clearance transition. A 30-second arrival total does not determine a
-future queue curve, and the engine's current decision source does not provide
-confidence, agreement with a recommendation, or a future signal schedule.
+or clearance transition. The replay's projected schedule and queue curve use explicit uniform-arrival
+assumptions. The controller's actual next interval is displayed separately.
+The model supplies arrival counts and does not provide confidence or a phase
+recommendation.
 
 See the [snapshot agreement draft](../../docs/SNAPSHOT.md) for model status,
 lights, and actual controller actions.

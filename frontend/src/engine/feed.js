@@ -283,7 +283,10 @@ export function buildView(state) {
       arrivals: view.forecast.arrivals,
       series: null,
       recommendation: null,
-      error: raw.forecast_error ?? null,
+      // The browser demo's per-forecast error number. The engine's own score
+      // (raw.forecast_error) is an object; the dashboard scores forecasts itself
+      // in forecastScore, which feed.test.mjs checks against the engine's.
+      error: null,
       latencyMs: null,
     },
     decision: raw.decision && {

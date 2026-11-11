@@ -37,6 +37,11 @@ struct MovementState {
     std::uint64_t oldest_wait_seconds = 0;
 };
 enum class DecisionSource { SafetyTiming, ReactiveFallback, Forecast };
+struct ForecastError {
+    std::uint64_t generated_at;
+    std::uint64_t evaluated_at;
+    double mae;
+};
 enum class ModelStatus { Disabled, WarmingUp, Ready, InvalidOutput };
 struct TrafficState {
     std::uint64_t time_seconds = 0;
@@ -44,7 +49,9 @@ struct TrafficState {
     SignalPhase phase = SignalPhase::NS_LEFT;
     SignalStage stage = SignalStage::Green;
     unsigned signal_elapsed = 0;
+    std::optional<unsigned> seconds_left;
     std::optional<Prediction> prediction;
+    std::optional<ForecastError> forecast_error;
     ModelStatus model_status = ModelStatus::Disabled;
     SignalPhase next_phase = SignalPhase::NS_LEFT;
     SignalStage next_stage = SignalStage::Green;
@@ -99,22 +106,33 @@ private:
     unsigned elapsed_ = 0;
     std::array<std::uint64_t, 4> unserved_seconds_{};
 };
+struct ProjectedSecond {
+    SignalPhase phase;
+    SignalStage stage;
+    std::array<std::uint64_t, movement_count> queues{};
+};
+using ForecastProjection = std::array<ProjectedSecond, 30>;
+
 class Simulator {
 public:
     explicit Simulator(SimulationConfig config = {});
     const TrafficState& step();
+    std::optional<ForecastProjection> project_forecast() const;
     const TrafficState& state() const { return state_; }
     std::optional<std::array<double, 60>> forecast_features() const;
 private:
+    const TrafficState& step_with_arrivals(const std::array<unsigned, movement_count>& arrivals);
     SimulationConfig config_;
     FixedTimeController controller_;
     ReactiveController reactive_;
     std::mt19937 rng_;
     TrafficState state_;
     std::optional<TrafficMLP> model_;
+    std::deque<Prediction> pending_forecasts_;
     std::array<std::array<std::uint64_t, movement_count>, 60> arrivals_{};
     std::array<std::deque<std::uint64_t>, movement_count> queues_;
 };
-std::string snapshot_json(const TrafficState& state, ControllerMode mode);
+std::string snapshot_json(const TrafficState& state, ControllerMode mode,
+                          const std::optional<ForecastProjection>& projection = std::nullopt);
 std::string status_line(const TrafficState& state);
 } // namespace greenlight
