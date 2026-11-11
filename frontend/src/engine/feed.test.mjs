@@ -11,7 +11,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseReplay } from '../../../integration/replay.mjs';
-import { PHASES, STOP } from '../sim/constants.js';
+import { CAR, PHASES, STOP } from '../sim/constants.js';
 import { EngineSim, LANE_SLOTS } from './EngineSim.js';
 import { applyHello, applySnapshot, applyStatus, buildView, createFeedState } from './feed.js';
 
@@ -415,6 +415,36 @@ test('cars that depart drive off and disappear; queued cars stop behind the line
   assert.equal(sim.departing.length, 0);
 });
 
+test('cars never drive through each other on the approach (shared through/right lane included)', () => {
+  // Through and right turns share one drawn lane, and their routes are the
+  // same until the stop area, so compare every pair in a lane up to there.
+  const SHARED_UNTIL = STOP + 20;
+  let worst = Infinity;
+  let where = '';
+  for (const frames of [RUN, runEngine(400, 7, 'fixed')]) {
+  const sim = new EngineSim();
+  const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+  let clock = 0;
+  for (const raw of frames) {
+    applySnapshot(state, raw);
+    sim.update(state.frames.at(-1).view);
+    for (let f = 0; f < 20; f++) {
+      const cars = sim.allCars((clock += 50)).filter((c) => c.s < SHARED_UNTIL);
+      const byLane = {};
+      for (const c of cars) (byLane[c.mv[0] + (c.mv[1] === 'L' ? 'L' : 'T')] ??= []).push(c);
+      for (const [lane, list] of Object.entries(byLane)) {
+        list.sort((a, b) => a.s - b.s);
+        for (let i = 1; i < list.length; i++) {
+          const gap = list[i].s - list[i - 1].s;
+          if (gap < worst) { worst = gap; where = `${lane} at ${raw.time_seconds}s (${list[i - 1].mv} / ${list[i].mv})`; }
+        }
+      }
+    }
+  }
+  }
+  assert.ok(worst >= CAR - 0.5, `cars overlapped: centres ${worst.toFixed(1)} apart in ${where} (car length ${CAR})`);
+});
+
 test('long queues show at most 10 cars per lane plus a "+N" label for the rest', () => {
   const r = spawnSync(ENGINE, ['900', '42', '--controller', 'fixed', '--demand', 'overloaded', '--format', 'jsonl'],
     { encoding: 'utf8', maxBuffer: 1 << 28 });
@@ -424,12 +454,16 @@ test('long queues show at most 10 cars per lane plus a "+N" label for the rest',
   for (const frames of [RUN, overloaded]) {
     const sim = new EngineSim();
     const state = applyHello(createFeedState(), { ...BRIDGE, history: [] });
+    let clock = 0;
     for (const raw of frames) {
       applySnapshot(state, raw);
       sim.update(state.frames.at(-1).view);
+      sim.allCars((clock += 1000)); // animate a second, as the page does
     }
     if (sim.laneLabels().length) overflowed = true;
-    const drawn = sim.allCars(0).filter((c) => !c.crossed);
+    // Let any car that just arrived finish driving into its slot.
+    for (let f = 0; f < 50; f++) sim.allCars((clock += 100));
+    const drawn = sim.allCars((clock += 100)).filter((c) => !c.crossed);
     const perLane = {};
     for (const c of drawn) {
       const lane = c.mv[0] + (c.mv[1] === 'L' ? 'L' : 'T');

@@ -17,8 +17,10 @@ import { CAR_COLORS } from '../sim/engine.js';
 const SLOT = CAR + GAP; // spacing of stopped cars
 const FRONT = STOP - 2; // where the first car in a lane stops
 export const LANE_SLOTS = 10; // cars that fit on screen per lane; more becomes a "+N" label
-const QUEUE_SPEED = 140; // px per second while closing up or driving in
-const DEPART_SPEED = 90; // px per second through the intersection
+// A departing car must be faster than the car closing up behind it, or the
+// follower catches up and the two overlap.
+const QUEUE_SPEED = 100; // px per second while closing up or driving in
+const DEPART_SPEED = 120; // px per second through the intersection
 const MOVING = 60; // speed value given to moving cars (only used for brake lights)
 
 // Left turns use the left lane; through and right share the right lane.
@@ -44,7 +46,14 @@ export class EngineSim {
     if (consecutive) {
       // Same order as the engine within a second: arrivals join, then departures leave.
       for (const mv in view.arrivals) {
-        for (let i = 0; i < view.arrivals[mv]; i++) this.lanes[laneOf(mv)].push(this.newCar(mv, 0));
+        for (let i = 0; i < view.arrivals[mv]; i++) {
+          // Enter at the map edge, or one car length behind a car still
+          // entering (two movements can arrive in one lane in the same second).
+          // Negative positions are just off the map.
+          const lane = this.lanes[laneOf(mv)];
+          const last = lane[lane.length - 1];
+          lane.push(this.newCar(mv, last ? Math.min(0, last.s - SLOT) : 0));
+        }
       }
       for (const mv in view.departures) {
         for (let i = 0; i < view.departures[mv]; i++) this.depart(mv);
@@ -72,9 +81,22 @@ export class EngineSim {
     const lane = this.lanes[laneOf(mv)];
     const i = lane.findIndex((c) => c.mv === mv);
     if (i === -1) return;
-    const [car] = lane.splice(i, 1);
-    // It keeps going from wherever it is: a car that arrives on green and is
-    // served the same second simply drives straight through.
+    // Through and right turns share one drawn lane, but the engine queues and
+    // serves them separately (both are green together). A released car may
+    // therefore sit behind cars of the other movement. Physically only the
+    // front car can pull away, so the front car leaves with the released
+    // movement and the released car takes over the front car's movement.
+    // Every movement's count still matches the engine exactly.
+    if (i > 0) {
+      const front = lane[0];
+      const released = lane[i];
+      [front.mv, released.mv] = [released.mv, front.mv];
+      [front.m, released.m] = [released.m, front.m];
+      [front.route, released.route] = [released.route, front.route];
+    }
+    const [car] = lane.splice(0, 1);
+    // It keeps going from wherever it is: a car that arrives on an empty lane
+    // and is served the same second simply drives straight through.
     car.crossed = true;
     this.departing.push(car);
   }
@@ -122,7 +144,7 @@ export class EngineSim {
           c.s = target;
           c.v = 0;
         }
-        if (i < shown) out.push(c);
+        if (i < shown && c.s >= 0) out.push(c); // not yet on the map: not drawn
       });
     }
     this.departing = this.departing.filter((c) => {
