@@ -24,12 +24,16 @@ export default function Header({ view, intersection, onIntersection, scenario, o
         </div>
       </div>
       <div className="ctrls">
-        <label className="field">
-          <span className="label">Intersection</span>
-          <select id="isect" aria-label="Intersection" value={intersection} onChange={(e) => onIntersection(Number(e.target.value))}>
-            {INTERSECTIONS.map((x, i) => <option key={x.name} value={i}>{x.name}</option>)}
-          </select>
-        </label>
+        {/* In engine mode this would only rename the streets (the engine has one
+            intersection), so it is shown for the browser demo only. */}
+        {!engine && (
+          <label className="field">
+            <span className="label">Intersection</span>
+            <select id="isect" aria-label="Intersection" value={intersection} onChange={(e) => onIntersection(Number(e.target.value))}>
+              {INTERSECTIONS.map((x, i) => <option key={x.name} value={i}>{x.name}</option>)}
+            </select>
+          </label>
+        )}
         <label className="field">
           <span className="label">Demand</span>
           {engine ? (
