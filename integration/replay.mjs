@@ -35,6 +35,7 @@ export function toReplayView(snapshot) {
     },
     arrivals: byMovement(snapshot.arrivals),
     departures: byMovement(snapshot.departures),
+    lights: snapshot.lights && byMovement(snapshot.movement_order.map(movement => snapshot.lights[movement])),
     controllerMode: snapshot.controller_mode,
     decisionSource: snapshot.decision_source,
     modelStatus: snapshot.model_status,

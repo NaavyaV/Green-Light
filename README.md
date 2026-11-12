@@ -59,3 +59,11 @@ browser-local simulator. Use the slider or Play to inspect the recording.
 Forecasts appear at second 60 and completed forecast MAE at second 90. Cars
 illustrate queue counts, and the schedule and queue curve are labeled projections.
 See the [snapshot contract](docs/SNAPSHOT.md) for the projection assumptions.
+
+## Dashboard
+
+The React + Vite dashboard lives in `frontend/`. See [frontend/README.md](frontend/README.md)
+for how to run it and what each panel shows. By default it runs **live** on the C++
+engine and ML model: build the engine into `build/`, then run `npm run dev:live` from
+`frontend/` (see [Live mode](src/engine/README.md#live-mode-bridge)). Set
+`DATA_SOURCE = 'browser'` in `frontend/src/config.js` for the self-contained demo.

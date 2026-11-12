@@ -330,3 +330,34 @@ recommendation.
 
 See the [snapshot agreement draft](../../docs/SNAPSHOT.md) for model status,
 lights, and actual controller actions.
+
+### Live mode (bridge)
+
+[`integration/live-server.mjs`](../../integration/live-server.mjs) keeps one
+engine process running and streams its JSONL snapshots to browsers over
+Server-Sent Events, one simulated second per real second (times the speed
+setting). It uses only Node's built-in modules. Build the engine into `build/`
+first, or point `GL_ENGINE` at it:
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=OFF   # add -G "MinGW Makefiles" on Windows/MinGW
+cmake --build build
+node integration/live-server.mjs          # http://127.0.0.1:8787, local only
+```
+
+It runs `green_light 4294967295 <seed> --controller <mode> --demand <preset>
+--ml-impute-speed ml_handoff/model_weights.txt --format jsonl`, starting with
+predictive control, seed 42 and normal demand. The engine runs ahead only
+until the bridge's 50-line queue is full; then the bridge stops reading and the
+full pipe blocks the engine. Pausing stops the reading clock.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/stream` | SSE. `hello` carries status, settings and the last 180 snapshots; then `snapshot` (one raw JSONL line) per second and `status` on changes. A new `hello` follows every restart. |
+| `POST /api/control` | `{"action":"pause"}`, `{"action":"resume"}`, `{"action":"speed","value":0.25-20}`, or `{"action":"restart","seed":7,"controller":"fixed","demand":"normal"}`. Anything else returns 400. |
+| `GET /api/health` | Status, settings, current second, clients, engine pid and buffered lines. |
+
+If the engine exits, clients receive `status` with `"status":"offline"` and
+the engine's last stderr lines. The bridge does not restart it automatically;
+a `restart` request does. Stopping the bridge stops the engine. Tests run the
+real engine: `node --test integration/live-server.test.mjs`.
